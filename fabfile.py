@@ -1,5 +1,6 @@
 from fabric.api import *
 from fabric.colors import *
+import time
 
 def install_package(name):
     """ install a package using APT """
@@ -96,7 +97,6 @@ def setup_base():
     """
     Set up all the basic packages that are required, except for database
     """
-    import time
     #require('hosts', provided_by=[local,production,start_instance])
     require('path')
     update_apt()
