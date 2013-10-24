@@ -1,0 +1,14 @@
+<uwsgi>
+  <socket>127.0.0.1:3031</socket>
+  <pythonpath>/mnt/ym/{{project_name}}/releases/current/{{project_name}}</pythonpath>
+  <home>/mnt/ym/{{project_name}}</home>
+  <wsgi-file>/mnt/ym/{{project_name}}/releases/current/wsgi.py</wsgi-file>
+  <processes>8</processes>
+  <uid>www-data</uid>
+  <gid>www-data</gid>
+  <pidfile>/mnt/ym/{{project_name}}/pid/uwsgi.pid</pidfile>
+  <buffer-size> 32768</buffer-size>
+  <master/>
+  <harakiri>360</harakiri>  
+  
+</uwsgi>
