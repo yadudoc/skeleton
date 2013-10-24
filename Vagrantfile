@@ -15,6 +15,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # and the path of fabfile.
   config.vm.provision :fabric do |fabric|
     fabric.fabfile_path = "./fabfile.py"
-    fabric.tasks = ["collect","dev", ]
+    fabric.tasks = ["dev", ]
   end
 end
