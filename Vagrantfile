@@ -2,7 +2,7 @@
 # vi: set ft=ruby :
 
 # For development, it is not needed when run on the production environment.
-#Vagrant.require_plugin "vagrant-fabric"
+Vagrant.require_plugin "vagrant-fabric"
 
 # Vagrantfile API/syntax version. Don't touch unless you know what you're doing!
 VAGRANTFILE_API_VERSION = "2"
