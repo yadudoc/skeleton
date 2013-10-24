@@ -26,7 +26,7 @@ def collect():
     local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude={{project_name}}/media *' % env)
 
 def upload_tar_from_git():
-    require('release', provided_by=[deploy, setup])
+    require('release', provided_by=[collect])
     "Create an archive from the current Git master branch and upload it"
     #local('git archive --format=tar master | gzip > %(release)s.tar.gz' % env)
     # local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude=expacore/media *' % env)
@@ -39,7 +39,10 @@ def upload_tar_from_git():
 def install_requirements():
     "Install the required packages from the requirements file using pip"
     # NOTE ... django requires a global install for some reason
-    require('release', provided_by=[deploy, setup])
+    #require('release', provided_by=[collect])
+    require('path')
+    if 'release' not in env:
+        env.release = 'current'
     with cd('%(path)s' % env):
         # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
         run('./bin/pip install --upgrade distribute==0.6.28')
@@ -49,7 +52,7 @@ def install_requirements():
 
 def symlink_current_release():
     "Symlink our current release"
-    require('release', provided_by=[deploy, setup])
+    require('release', provided_by=[collect])
     run('cd %(path)s; rm releases/previous; mv releases/current releases/previous;' % env)
     run('cd %(path)s; ln -s %(release)s releases/current' % env)
     #run('cd %(path)s/releases/current/expacore/media; cp -r %(path)s/lib/python2.7/site-packages/django/contrib/admin/static/admin ./admin' % env)
@@ -137,8 +140,8 @@ def setup_mysql_server():
     sudo('echo mysql-server-5.5 mysql-server/root_password_again seen true | debconf-set-selections', quiet=True)
 
     install_package('mysql-server-5.5')
-    sudo('mysqladmin -pmysql create {{project_name}}')
-    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'10.\%\' IDENTIFIED BY \'{{project_name}}\'"')
+    sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
+    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'10.%\' IDENTIFIED BY \'{{project_name}}\'"')
 
 def setup_base():
     """
@@ -151,10 +154,10 @@ def setup_base():
     setup_mysql_client()
     setup_mysql_server()
     sudo('mkdir -p %(path)s/packages; cd %(path)s; virtualenv --distribute .;'%env)
+    sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
 
 def setup_prod():
     sudo('cd %(path)s; mkdir -p releases; mkdir -p shared; mkdir -p packages; touch releases/previous; touch releases/current' %env)
-    sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
 
     upload_tar_from_git()
     install_requirements()
@@ -170,9 +173,9 @@ def dev():
     env.projectname = '{{project_name}}'
     env.path = '/mnt/ym/%(projectname)s' %env
     env.user = 'vagrant'
-    #env.target="dev"
-    #env.init_file = '__init__development'
-    #env.requirements_file = 'requirements_prod'
+    env.target="dev"
+    env.init_file = '__init__development'
+    env.requirements_file = 'local'
     #env.virtualhost_path = "/"
     #env.security_group = 'dev'
     sudo('aptitude reinstall ca-certificates')
