@@ -130,9 +130,15 @@ def setup_mysql_client():
     install_package('python-mysqldb')
 
 def setup_mysql_server():
-    install_package('mysql-server')
-    sudo('mysqladmin create {{project_name}}')
-    sudo('mysql -uroot -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@localhost IDENTIFIED BY "{{project_name}}"')
+    install_package('debconf-utils')
+    sudo('echo mysql-server-5.5 mysql-server/root_password password mysql | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password_again password mysql | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password seen true | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password_again seen true | debconf-set-selections', quiet=True)
+
+    install_package('mysql-server-5.5')
+    sudo('mysqladmin -pmysql create {{project_name}}')
+    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@localhost IDENTIFIED BY \'{{project_name}}\'"')
 
 def setup_base():
     """
