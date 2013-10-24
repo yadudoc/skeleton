@@ -138,7 +138,7 @@ def setup_mysql_server():
 
     install_package('mysql-server-5.5')
     sudo('mysqladmin -pmysql create {{project_name}}')
-    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@localhost IDENTIFIED BY \'{{project_name}}\'"')
+    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'10.\%\' IDENTIFIED BY \'{{project_name}}\'"')
 
 def setup_base():
     """
