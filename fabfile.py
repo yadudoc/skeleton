@@ -20,8 +20,9 @@ def collect():
     env.release = time.strftime('%Y%m%d%H%M%S')
     local("find . -name '*.pyc' -print0|xargs -0 rm", capture=False)
 
-    local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
-    local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
+    #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
+    #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
+    local('python ./{{project_name}}/manage.py collectstatic --noinput ')
     local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude={{project_name}}/media *' % env)
 
 def upload_tar_from_git():
@@ -93,9 +94,10 @@ def install_web():
     sudo('chmod 755 /etc/init.d/uwsgi')
     start_webservers()
 
-def setup_base():
+def install_base():
     """
     Set up all the basic packages that are required, except for database
+    TODO: read packages from file
     """
     #require('hosts', provided_by=[local,production,start_instance])
     require('path')
@@ -116,7 +118,7 @@ def setup_base():
     install_package('libgdk-pixbuf2.0-0')
     install_package('libffi-dev')
 
-def setup_mysql():
+def setup_mysql_client():
     """
     Setup mysql drivers
     """
@@ -126,22 +128,25 @@ def setup_mysql():
     sudo('aptitude -y build-dep python-mysqldb')
 
     install_package('python-mysqldb')
+
+def setup_mysql_server():
+    install_package('mysql-server')
     sudo('mysqladmin create {{project_name}}')
     sudo('mysql -uroot -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@localhost IDENTIFIED BY "{{project_name}}"')
 
-def setup():
+def setup_base():
     """
     take a fresh instance and create a working webserver
     """
-    import time
     require('path')
     update_apt()
 
-    setup_base()
-    setup_mysql()
-
+    install_base()
+    setup_mysql_client()
+    setup_mysql_server()
     sudo('mkdir -p %(path)s/packages; cd %(path)s; virtualenv --distribute .;'%env)
-    
+
+def setup_prod():
     sudo('cd %(path)s; mkdir -p releases; mkdir -p shared; mkdir -p packages; touch releases/previous; touch releases/current' %env)
     sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
 
@@ -152,9 +157,12 @@ def setup():
 
     install_web()
 
+def setup_dev():
+    install_requirements()
+
 def dev():
     env.projectname = '{{project_name}}'
-    env.path = '/mnt/ym/%(projectname)s'
+    env.path = '/mnt/ym/%(projectname)s' %env
     env.user = 'vagrant'
     #env.target="dev"
     #env.init_file = '__init__development'
@@ -162,4 +170,6 @@ def dev():
     #env.virtualhost_path = "/"
     #env.security_group = 'dev'
     sudo('aptitude reinstall ca-certificates')
-    setup()
+    setup_base()
+    setup_dev()
+
