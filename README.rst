@@ -51,9 +51,8 @@ django-twoscoops-project, run the following command::
 Vagrant + VirtualBox
 ====================
 
-Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://downloads.vagrantup.com/)
+Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://downloads.vagrantup.com/)::
 
-    $ vagrant plugin install vagrant-vbguest
     $ vagrant plugin install vagrant-fabric
     $ cd test_me
     $ vagrant up
