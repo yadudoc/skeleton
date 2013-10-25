@@ -1,6 +1,8 @@
 from fabric.api import *
 from fabric.colors import *
 import time
+import boto
+import boto.ec2
 
 def install_package(name):
     """ install a package using APT """
@@ -16,69 +18,49 @@ def update_apt():
         sudo('apt-get update')
         print green('[DONE]')
 
-def collect():
-    env.release = time.strftime('%Y%m%d%H%M%S')
-    local("find . -name '*.pyc' -print0|xargs -0 rm", capture=False)
+# Instance Initiation
+amis = {'t1.micro' : 'ami-137bcf7a',
+        'm1.small' : 'ami-2efa9d47',
+        'm1.large' : 'ami-121da47b' }
 
-    #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
-    #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
-    local('python ./{{project_name}}/manage.py collectstatic --noinput ')
-    local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude={{project_name}}/media *' % env)
+def start_instance(inst_size, ami=None, key='default', zone='us-east-1b'):
+    """ start an instance """
+    if inst_size not in amis:
+        print red('You need to supply instance size: %s' % ' '.join(amis.keys()))
+        return
 
-def upload_tar_from_git():
-    require('release', provided_by=[collect])
-    "Create an archive from the current Git master branch and upload it"
-    #local('git archive --format=tar master | gzip > %(release)s.tar.gz' % env)
-    # local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude=expacore/media *' % env)
-    run('mkdir -p %(path)s/releases/%(release)s' % env )
-    put('%(release)s.tar.gz' % env, '%(path)s/packages/' % env)
-    run('cd %(path)s/releases/%(release)s && tar zxf ../../packages/%(release)s.tar.gz' % env)
-    sudo('rm %(path)s/packages/%(release)s.tar.gz' % env)
-    # local('rm %(release)s.tar.gz' % env)
-
-def install_requirements():
-    "Install the required packages from the requirements file using pip"
-    # NOTE ... django requires a global install for some reason
-    #require('release', provided_by=[collect])
-    require('path')
-    if 'release' not in env:
-        env.release = 'current'
-    with cd('%(path)s' % env):
-        # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
-        run('./bin/pip install --upgrade distribute==0.6.28')
-        # run('./bin/pip install --upgrade versiontools')
+    if not ami:
+        ami = amis[inst_size]
         
-        run('./bin/pip install -r ./releases/%(release)s/requirements/%(requirements_file)s.txt' % env)
+    c = boto.connect_ec2()
 
-def symlink_current_release():
-    "Symlink our current release"
-    require('release', provided_by=[collect])
-    run('cd %(path)s; rm releases/previous; mv releases/current releases/previous;' % env)
-    run('cd %(path)s; ln -s %(release)s releases/current' % env)
-    #run('cd %(path)s/releases/current/expacore/media; cp -r %(path)s/lib/python2.7/site-packages/django/contrib/admin/static/admin ./admin' % env)
+    try:
+        reservation = c.run_instances(ami, instance_type=inst_size, key_name=key, placement=zone,security_groups=[env.security_group])
+    except Exception as error:
+        print red('Error occured while starting the instance %s' % str(error))
+        return
+    instance = reservation.instances[0]
+    print green('Waiting for instance to start...')
+    status = instance.update()
+    while status == 'pending':
+        time.sleep(10)
+        status = instance.update()
 
-def migrate():
-    "Update the database"
-    require('project_name')
-    require('init_file')
-    with cd('%(path)s/releases/current/{{project_name}}' % env):
-        run('cp settings/%(init_file)s.py settings/__init__.py' % env)
-        run('../../../bin/python manage.py syncdb --noinput')
-        run('../../../bin/python manage.py migrate')
-        #run('../../../bin/python manage.py loaddata app/fixtures/')
+        if status == 'running':
+            print green('New instance "' + instance.id + '" accessible at ' + instance.public_dns_name)
 
-# Start/Stop Stuff
-def start_webservers():
-    sudo('/etc/init.d/nginx start')
-    sudo('/etc/init.d/uwsgi start')
+    env.disable_known_hosts = True
+    #env.key_filename = '~/.ec2/default.pem'
+    env.host_string = str(instance.public_dns_name)
+    env.hosts = [env.host_string,]
 
-
-def restart_webserver():
-    "Restart the web server"
-    sudo('cp /usr/local/expacore/releases/current/conf/uwsgi.xml /etc/uwsgi.xml')
-    sudo('/etc/init.d/uwsgi reload')
-    #sudo('/etc/init.d/celeryd restart')
-
+def new_webserver():
+    """ start a large instance using our custom AMI and do the rest of the setup """
+    start_instance('m1.small', key='test')
+    # wait a bit
+    time.sleep(20)
+    sudo('aptitude reinstall ca-certificates')
+    
 def install_web():
     sudo('mkdir -p %(path)s/tmp/' %env)
     sudo('mkdir -p %(path)s/pid/' %env)
@@ -141,7 +123,7 @@ def setup_mysql_server():
 
     install_package('mysql-server-5.5')
     sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
-    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'10.%\' IDENTIFIED BY \'{{project_name}}\'"')
+    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'localhost\' IDENTIFIED BY \'{{project_name}}\'"')
 
 def setup_base():
     """
@@ -152,9 +134,72 @@ def setup_base():
 
     install_base()
     setup_mysql_client()
-    setup_mysql_server()
     sudo('mkdir -p %(path)s/packages; cd %(path)s; virtualenv --distribute .;'%env)
     sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
+
+def collect():
+    env.release = time.strftime('%Y%m%d%H%M%S')
+    local("find . -name '*.pyc' -print0|xargs -0 rm", capture=False)
+
+    #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
+    #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
+    local('python ./{{project_name}}/manage.py collectstatic --noinput ')
+    local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude={{project_name}}/media *' % env)
+
+def upload_tar_from_git():
+    require('release', provided_by=[collect])
+    "Create an archive from the current Git master branch and upload it"
+    #local('git archive --format=tar master | gzip > %(release)s.tar.gz' % env)
+    # local('tar -czf  %(release)s.tar.gz --exclude=.git --exclude=expacore/media *' % env)
+    run('mkdir -p %(path)s/releases/%(release)s' % env )
+    put('%(release)s.tar.gz' % env, '%(path)s/packages/' % env)
+    run('cd %(path)s/releases/%(release)s && tar zxf ../../packages/%(release)s.tar.gz' % env)
+    sudo('rm %(path)s/packages/%(release)s.tar.gz' % env)
+    # local('rm %(release)s.tar.gz' % env)
+
+def install_requirements():
+    "Install the required packages from the requirements file using pip"
+    # NOTE ... django requires a global install for some reason
+    #require('release', provided_by=[collect])
+    require('path')
+    if 'release' not in env:
+        env.release = 'current'
+
+    print 'path is %(path)s' %env
+    with cd('%(path)s' % env):
+        # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
+        run('./bin/pip install --upgrade distribute==0.6.28')
+        # run('./bin/pip install --upgrade versiontools')
+        
+        run('./bin/pip install -r ./releases/%(release)s/requirements/%(requirements_file)s.txt' % env)
+
+def symlink_current_release():
+    "Symlink our current release"
+    require('release', provided_by=[collect])
+    run('cd %(path)s; rm releases/previous; mv releases/current releases/previous;' % env)
+    run('cd %(path)s; ln -s %(release)s releases/current' % env)
+    #run('cd %(path)s/releases/current/expacore/media; cp -r %(path)s/lib/python2.7/site-packages/django/contrib/admin/static/admin ./admin' % env)
+
+def migrate():
+    "Update the database"
+    require('project_name')
+    require('init_file')
+    with cd('%(path)s/releases/current/{{project_name}}' % env):
+        run('cp settings/%(init_file)s.py settings/__init__.py' % env)
+        run('../../../bin/python manage.py syncdb --noinput')
+        run('../../../bin/python manage.py migrate')
+        #run('../../../bin/python manage.py loaddata app/fixtures/')
+
+# Start/Stop Stuff
+def start_webservers():
+    sudo('/etc/init.d/nginx start')
+    sudo('/etc/init.d/uwsgi start')
+
+def restart_webserver():
+    "Restart the web server"
+    sudo('cp /usr/local/expacore/releases/current/conf/uwsgi.xml /etc/uwsgi.xml')
+    sudo('/etc/init.d/uwsgi reload')
+    #sudo('/etc/init.d/celeryd restart')
 
 def setup_prod():
     sudo('cd %(path)s; mkdir -p releases; mkdir -p shared; mkdir -p packages; touch releases/previous; touch releases/current' %env)
@@ -167,9 +212,6 @@ def setup_prod():
     install_web()
 
 def setup_dev():
-    install_requirements()
-
-def dev():
     env.projectname = '{{project_name}}'
     env.path = '/mnt/ym/%(projectname)s' %env
     env.user = 'vagrant'
@@ -178,7 +220,25 @@ def dev():
     env.requirements_file = 'local'
     #env.virtualhost_path = "/"
     #env.security_group = 'dev'
+
     sudo('aptitude reinstall ca-certificates')
     setup_base()
-    setup_dev()
+    setup_mysql_server()
+    install_requirements()
+    
+def setup_dev_aws():
+    env.projectname = '{{project_name}}'
+    env.path = '/mnt/ym/%(projectname)s' %env
+    env.user = 'ubuntu'
+    env.target="dev"
+    env.init_file = '__init__development'
+    env.requirements_file = 'local'
+    #env.virtualhost_path = "/"
+    #env.security_group = 'dev'
+
+    new_webserver()
+    sudo('aptitude reinstall ca-certificates')
+    setup_base()
+    setup_mysql_server()
+    install_requirements()    
 
