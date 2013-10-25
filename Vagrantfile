@@ -10,6 +10,7 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.box = "precise64"
   config.vm.synced_folder ".", "/mnt/ym/{{project_name}}/releases/current"
+  config.vm.network :public_network
 
   # Enable provisioning with fabric script, specifiying jobs you want execute,
   # and the path of fabfile.
