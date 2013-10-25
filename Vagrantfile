@@ -14,7 +14,7 @@ ram      = '256'
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.box = box
-  config.vm.synced_folder ".", "/mnt/ym/{{projectname}}/releases/current"
+  config.vm.synced_folder ".", "/mnt/ym/{{project_name}}/releases/current"
   config.vm.network :public_network
 
   config.vm.provider "virtualbox" do |v|
