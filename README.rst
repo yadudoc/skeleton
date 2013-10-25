@@ -11,6 +11,7 @@ To use this project follow these steps:
 #. Create the new project using the django-two-scoops template
 #. Use the Django admin to create the project
 #. Use Vagrant to start up your dev environment
+#. Use Django to start up your app
 #. (optional) use fab to spin up AWS instances
 
 *note: these instructions show creation of a project called "test_me".  You
@@ -56,6 +57,15 @@ Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://
     $ vagrant plugin install vagrant-fabric
     $ cd test_me
     $ vagrant up
+
+Startup your app
+====================
+To start the **test_me** app, use vagrant to enter the VM and django to start the server::
+
+    $ vagrant ssh
+    $ cd /mnt/ym/test_me
+    $ source bin/activate
+    $ python ./releases/current/test_me/manage.py runserver
 
 Acknowledgements
 ================
