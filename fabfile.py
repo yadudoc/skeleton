@@ -1,8 +1,11 @@
-from fabric.api import *
-from fabric.colors import *
 import time
 import boto
 import boto.ec2
+import boto.rds
+
+from fabric.api import *
+from fabric.colors import *
+
 
 def install_package(name):
     """ install a package using APT """
@@ -18,12 +21,44 @@ def update_apt():
         sudo('apt-get update')
         print green('[DONE]')
 
+def create_ec2_securityGroup(name,description,ruleSet):
+    conn = boto.connect_ec2()
+    if name not in [sg.name for sg in conn.get_all_security_groups()]:
+        print green('Creating EC2 security group "%s"') %name
+        try:
+            conn.create_security_group(name,description)
+            for protocol, port, cidr in ruleSet:
+                conn.authorize_security_group(group_name=name,ip_protocol=protocol,from_port=port,to_port=port,cidr_ip=cidr)
+        except Exception as error:
+            print red('Error occured while create security group "%s": %s') %(name, str(error))
+            print yellow('Rolling back!')
+            conn.delete_security_group(name)
+            return
+    else:
+        print green('Security group "%s" already created. continuing') %name
+
+def create_rds_securityGroup(name,description,ec2SecurityGroupName):
+    rdsConn = boto.rds.connect_to_region('us-east-1')
+    ec2Conn = boto.connect_ec2()
+    ec2SecurityGroups = ec2Conn.get_all_security_groups()
+    ec2SecurityGroup = [ ec2sg for ec2sg in ec2SecurityGroups if ec2sg.name == name ]
+    if name not in [sg.name for sg in rdsConn.get_all_dbsecurity_groups()]:
+        print green('Creating RDS security group "%s"') %name
+        try:
+            dbSecurityGroup = rdsConn.create_dbsecurity_group(name,description)
+            dbSecurityGroup.authorize(ec2_group=ec2SecurityGroup[0])
+        except Exception as error:
+            print red('Error occured while create security group "%s": %s') %(name, str(error))
+            print yellow('Rolling back!')
+            rdsConn.delete_dbsecurity_group(name)
+            return   
+
 # Instance Initiation
 amis = {'t1.micro' : 'ami-137bcf7a',
         'm1.small' : 'ami-2efa9d47',
         'm1.large' : 'ami-121da47b' }
 
-def start_instance(inst_size, ami=None, key='default', zone='us-east-1b'):
+def start_ec2_instance(inst_size, ami=None, key='default', zone='us-east-1b'):
     """ start an instance """
     if inst_size not in amis:
         print red('You need to supply instance size: %s' % ' '.join(amis.keys()))
@@ -32,17 +67,18 @@ def start_instance(inst_size, ami=None, key='default', zone='us-east-1b'):
     if not ami:
         ami = amis[inst_size]
         
-    c = boto.connect_ec2()
+    conn = boto.connect_ec2()
 
     try:
-        reservation = c.run_instances(ami, instance_type=inst_size, key_name=key, placement=zone,security_groups=[env.security_group])
+        reservation = conn.run_instances(ami, instance_type=inst_size, key_name=key, placement=zone,security_groups=[env.ec2SecurityGroupName])
     except Exception as error:
         print red('Error occured while starting the instance %s' % str(error))
-        return
+        return 
+
     instance = reservation.instances[0]
     print green('Waiting for instance to start...')
     status = instance.update()
-    while status == 'pending':
+    while status != "running":
         time.sleep(10)
         status = instance.update()
 
@@ -50,13 +86,35 @@ def start_instance(inst_size, ami=None, key='default', zone='us-east-1b'):
             print green('New instance "' + instance.id + '" accessible at ' + instance.public_dns_name)
 
     env.disable_known_hosts = True
-    #env.key_filename = '~/.ec2/default.pem'
     env.host_string = str(instance.public_dns_name)
     env.hosts = [env.host_string,]
 
+def new_rds(dbInstanceId, appName, dbStorageSize, dbInstanceSize, dbUser, dbPassword):
+    conn = boto.rds.connect_to_region('us-east-1')
+    try:
+        db = conn.create_dbinstance(id=dbInstanceId, allocated_storage=dbStorageSize, instance_class=dbInstanceSize, engine='MySQL', master_username=dbUser, master_password=dbPassword, db_name=appName, security_groups=[env.rdsSecurityGroupName])
+    except Exception as error:
+        print red('Error occured while provisioning the RDS instance %s' % str(error))
+        return
+
+    print green('Waiting for rdsInstance to start...')
+    status = db.update()
+    while status != 'available':
+        time.sleep(45)
+        status = db.update()
+        print yellow('Still waiting for rdsInstance to start. current status is ') + red(status)
+
+    if status == 'available':
+        print green('New rdsInstance %s accessible at %s on port %d') % (db.id, db.endpoint[0], db.endpoint[1])
+
+    env.dbHostString = str(db.endpoint[0])
+    env.dbPortString = str(db.endpoint[1])
+    env.dbHost = [env.dbHostString]
+    env.dbPort = [env.dbPortString]
+
 def new_webserver():
     """ start a large instance using our custom AMI and do the rest of the setup """
-    start_instance('m1.small', key='test')
+    start_ec2_instance('m1.small', key='test')
     # wait a bit
     time.sleep(20)
     sudo('aptitude reinstall ca-certificates')
@@ -218,10 +276,7 @@ def setup_dev():
     env.target="dev"
     env.init_file = '__init__development'
     env.requirements_file = 'local'
-    #env.virtualhost_path = "/"
-    #env.security_group = 'dev'
 
-    sudo('aptitude reinstall ca-certificates')
     setup_base()
     setup_mysql_server()
     install_requirements()
@@ -233,12 +288,17 @@ def setup_dev_aws():
     env.target="dev"
     env.init_file = '__init__development'
     env.requirements_file = 'local'
-    #env.virtualhost_path = "/"
-    #env.security_group = 'dev'
+    env.ec2SecurityGroupName = 'webservers'
+    env.ec2SecurityGroupDesc = 'front-ends'
+    env.ec2SecurityGroupRuleSet = [ [ 'tcp', '22', '0.0.0.0/0'], ['tcp', '80', '0.0.0.0/0'], ['tcp', '443', '0.0.0.0/0'] ]
+    env.rdsSecurityGroupName = 'webservers'
+    env.rdsSecurityGroupDesc = 'front-ends'
+    dbInstanceId = "dev-db-" + time.strftime('%Y%m%d%H%M%S')
 
-    new_webserver()
-    sudo('aptitude reinstall ca-certificates')
+    create_ec2_securityGroup(env.ec2SecurityGroupName, env.ec2SecurityGroupDesc, env.ec2SecurityGroupRuleSet)
+    create_rds_securityGroup(env.rdsSecurityGroupName, env.rdsSecurityGroupDesc, env.ec2SecurityGroupName) 
+    new_rds(dbInstanceId,dbInstanceSize='db.m1.small',dbUser='root',dbPassword='mysql',dbStorageSize='10',appName='{{project_name}}')
+    new_webserver() 
     setup_base()
-    setup_mysql_server()
-    install_requirements()    
 
+    install_requirements()    
