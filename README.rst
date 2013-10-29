@@ -55,6 +55,7 @@ Vagrant + VirtualBox
 Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://downloads.vagrantup.com/)::
 
     $ vagrant plugin install vagrant-fabric
+    $ vagrant plugin install vagrant-vbguest
     $ cd test_me
     $ vagrant up
 
