@@ -13,14 +13,19 @@ from config import Config
 import time
 
 # import configuration variables from untracked config file
-aws_cfg = Config(open("aws.cfg"))
+try:
+    aws_cfg = Config(open("aws.cfg"))
+    env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
+                                                       aws_cfg["key_name"] + ".pem"))
+except Exception as e:
+    print "aws.cfg not found. %s" %e
+
 try:
     with open("settings.json", "r") as settingsFile:
         app_settings = json.load(settingsFile)
 except Exception as e:
     print "settings.json is bad"
-env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],
-                                                   aws_cfg["key_name"] + ".pem"))
+
 
 
 #-----FABRIC TASKS-----------
@@ -354,60 +359,6 @@ def restart():
         sudo("supervisorctl restart {app_name}".format(app_name=app_settings["APP_NAME"]))
         sudo('/etc/init.d/nginx reload')
 
-@task
-def setup_dev():
-    env.projectname = '{{project_name}}'
-    env.path = '/mnt/ym/%(projectname)s' %env
-    env.user = 'vagrant'
-    env.target="dev"
-    env.init_file = '__init__development'
-    env.requirements_file = 'local'
-
-    setup_base()
-    setup_mysql_server()
-    install_requirements()
-
-@task
-def setup_base():
-    """
-    take a fresh instance and create a working webserver
-    """
-    require('path')
-    update_apt()
-
-    install_base()
-    setup_mysql_client()
-    sudo('mkdir -p %(path)s/packages; cd %(path)s; virtualenv --distribute .;'%env)
-    sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
-
-@task
-def setup_mysql_server():
-    install_package('debconf-utils')
-    sudo('echo mysql-server-5.5 mysql-server/root_password password mysql | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password_again password mysql | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password seen true | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password_again seen true | debconf-set-selections', quiet=True)
-
-    install_package('mysql-server-5.5')
-    sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
-    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'localhost\' IDENTIFIED BY \'{{project_name}}\'"')
-
-@task
-def install_requirements():
-    "Install the required packages from the requirements file using pip"
-    # NOTE ... django requires a global install for some reason
-    #require('release', provided_by=[collect])
-    require('path')
-    if 'release' not in env:
-        env.release = 'current'
-
-    print 'path is %(path)s' %env
-    with cd('%(path)s' % env):
-        # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
-        run('./bin/pip install --upgrade distribute==0.6.28')
-        # run('./bin/pip install --upgrade versiontools')
-        
-        run('./bin/pip install -r ./releases/%(release)s/requirements/%(requirements_file)s.txt' % env)
 #----------HELPER FUNCTIONS-----------
 
 @contextmanager
@@ -470,17 +421,3 @@ def deploy_app(name):
             print e
         finally:
             os.rename("chef_files/hold_Berksfile", "chef_files/Berksfile")
-
-def install_package(name):
-    """ install a package using APT """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Installing package %s... ' % name),
-        sudo('apt-get -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
-
-def update_apt():
-    """ run apt-get update """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Updating APT cache... '),
-        sudo('apt-get update')
-        print _green('[DONE]')

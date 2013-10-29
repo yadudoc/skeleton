@@ -32,7 +32,7 @@ that's installed, create your virtualenv::
 
     $ virtualenv test_me
     $ cd test_me
-    $ soruce bin/activate
+    $ source bin/activate
 
 Installing Django
 =================
