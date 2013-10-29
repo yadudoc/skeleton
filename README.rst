@@ -66,7 +66,7 @@ To start the **test_me** app, use vagrant to enter the VM and django to start th
     $ vagrant ssh
     $ cd /mnt/ym/test_me
     $ source bin/activate
-    $ python ./releases/current/test_me/manage.py runserver
+    $ python ./releases/current/test_me/manage.py runserver 0.0.0.0:8000
 
 Acknowledgements
 ================
