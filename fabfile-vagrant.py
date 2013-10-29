@@ -1,6 +1,6 @@
 import time
 from fabric.operations import put
-from fabric.api import env, local, sudo, run, cd, prefix, task, settings, execute
+from fabric.api import *
 from fabric.colors import green as _green, yellow as _yellow, red as _red
 from fabric.context_managers import hide, show, lcd
 
@@ -41,6 +41,44 @@ def setup_mysql_server():
     install_package('mysql-server-5.5')
     sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
     sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'localhost\' IDENTIFIED BY \'{{project_name}}\'"')
+
+@task
+def setup_mysql_client():
+    """
+    Setup mysql drivers
+    """
+    install_package('mysql-client')
+    install_package('libmysqlclient-dev')
+
+    sudo('aptitude -y build-dep python-mysqldb')
+
+    install_package('python-mysqldb')
+    
+@task
+def install_base():
+    """
+    Set up all the basic packages that are required, except for database
+    TODO: read packages from file
+    """
+    #require('hosts', provided_by=[local,production,start_instance])
+    require('path')
+    update_apt()
+    install_package('aptitude')
+    install_package('ntpdate')
+    install_package('python-setuptools')
+    install_package('gcc')
+    install_package('git-core')
+    install_package('libxml2-dev')
+    install_package('libxslt1-dev')
+    install_package('python-virtualenv')
+
+    install_package('python-dev')
+    install_package('python-lxml')
+    install_package('libcairo2')
+    install_package('libpango1.0-0')
+    install_package('libgdk-pixbuf2.0-0')
+    install_package('libffi-dev')
+
 
 @task
 def install_requirements():
