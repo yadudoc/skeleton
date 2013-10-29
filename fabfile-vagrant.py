@@ -1,6 +1,8 @@
 import time
-from fabric.api import *
-from fabric.colors import *
+from fabric.operations import put
+from fabric.api import env, local, sudo, run, cd, prefix, task, settings, execute
+from fabric.colors import green as _green, yellow as _yellow, red as _red
+from fabric.context_managers import hide, show, lcd
 
 @task
 def setup_dev():
