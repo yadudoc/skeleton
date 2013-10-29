@@ -32,7 +32,7 @@ that's installed, create your virtualenv::
 
     $ virtualenv test_me
     $ cd test_me
-    $ soruce bin/activate
+    $ source bin/activate
 
 Installing Django
 =================
@@ -47,7 +47,7 @@ Creating your project
 To create a new Django project called '**test_me**' using
 django-twoscoops-project, run the following command::
 
-    $ django-admin.py startproject --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html --name=deploy/*,Vagrantfile test_me
+    $ django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab test_me
 
 Vagrant + VirtualBox
 ====================
@@ -55,6 +55,7 @@ Vagrant + VirtualBox
 Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://downloads.vagrantup.com/)::
 
     $ vagrant plugin install vagrant-fabric
+    $ vagrant plugin install vagrant-vbguest
     $ cd test_me
     $ vagrant up
 
@@ -65,7 +66,7 @@ To start the **test_me** app, use vagrant to enter the VM and django to start th
     $ vagrant ssh
     $ cd /mnt/ym/test_me
     $ source bin/activate
-    $ python ./releases/current/test_me/manage.py runserver
+    $ python ./releases/current/test_me/manage.py runserver 0.0.0.0:8000
 
 Acknowledgements
 ================

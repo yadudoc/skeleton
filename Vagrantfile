@@ -26,7 +26,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Enable provisioning with fabric script, specifiying jobs you want execute,
   # and the path of fabfile.
   config.vm.provision :fabric do |fabric|
-    fabric.fabfile_path = "./fabfile.py"
+    fabric.fabfile_path = "./fabfile-vagrant.py"
     fabric.tasks = ["setup_dev", ]
   end
 end
