@@ -23,6 +23,18 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     v.customize ["modifyvm", :id, "--memory", ram]
   end
 
+  #config.omnibus.chef_version = :latest
+  
+  #config.berkshelf.enabled = true
+  #config.berkshelf.berksfile_path = "./chef_files/Berksfile"
+
+  #config.vm.provision "chef_solo" do |chef|
+  #    chef.encrypted_data_bag_secret_key_path = "chef_files/data_bag_key"
+  #    chef.cookbooks_path = [ "chef_files/site-cookbooks", ]
+  #    chef.roles_path = [ "chef_files/roles", ]
+  #    chef.data_bags_path = [ "chef_files/data_bags", ]
+  #    chef.add_role("localhost")
+  #end
   # Enable provisioning with fabric script, specifiying jobs you want execute,
   # and the path of fabfile.
   config.vm.provision :fabric do |fabric|

@@ -14,7 +14,6 @@ def setup_dev():
     env.requirements_file = 'local'
 
     setup_base()
-    setup_mysql_server()
     install_requirements()
 
 @task
@@ -29,18 +28,6 @@ def setup_base():
     setup_mysql_client()
     sudo('mkdir -p %(path)s/packages; cd %(path)s; virtualenv --distribute .;'%env)
     sudo ('chown -R %(user)s:%(user)s %(path)s'%env)
-
-@task
-def setup_mysql_server():
-    install_package('debconf-utils')
-    sudo('echo mysql-server-5.5 mysql-server/root_password password mysql | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password_again password mysql | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password seen true | debconf-set-selections', quiet=True)
-    sudo('echo mysql-server-5.5 mysql-server/root_password_again seen true | debconf-set-selections', quiet=True)
-
-    install_package('mysql-server-5.5')
-    sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
-    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'localhost\' IDENTIFIED BY \'{{project_name}}\'"')
 
 @task
 def setup_mysql_client():
@@ -62,7 +49,6 @@ def install_base():
     """
     #require('hosts', provided_by=[local,production,start_instance])
     require('path')
-    update_apt()
     install_package('aptitude')
     install_package('ntpdate')
     install_package('python-setuptools')
