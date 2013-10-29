@@ -47,7 +47,7 @@ Creating your project
 To create a new Django project called '**test_me**' using
 django-twoscoops-project, run the following command::
 
-    $ django-admin.py startproject --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html --name=deploy/*,Vagrantfile test_me
+    $ django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab test_me
 
 Vagrant + VirtualBox
 ====================
