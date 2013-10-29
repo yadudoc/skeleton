@@ -10,7 +10,7 @@ from sys import path
 DJANGO_ROOT = dirname(dirname(abspath(__file__)))
 
 # Absolute filesystem path to the top-level project folder:
-SITE_ROOT = dirname(DJANGO_ROOT)
+SITE_ROOT = DJANGO_ROOT
 
 # Site name:
 SITE_NAME = basename(DJANGO_ROOT)
@@ -170,7 +170,7 @@ MIDDLEWARE_CLASSES = (
 
 ########## URL CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#root-urlconf
-ROOT_URLCONF = '%s.urls' % SITE_NAME
+ROOT_URLCONF = 'urls'
 ########## END URL CONFIGURATION
 
 
@@ -241,5 +241,5 @@ LOGGING = {
 
 ########## WSGI CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#wsgi-application
-WSGI_APPLICATION = '%s.wsgi.application' % SITE_NAME
+WSGI_APPLICATION = 'wsgi.application' 
 ########## END WSGI CONFIGURATION
