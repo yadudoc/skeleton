@@ -53,7 +53,7 @@ def setup_mysql_client():
     sudo('aptitude -y build-dep python-mysqldb')
 
     install_package('python-mysqldb')
-    
+
 @task
 def install_base():
     """
@@ -78,7 +78,6 @@ def install_base():
     install_package('libpango1.0-0')
     install_package('libgdk-pixbuf2.0-0')
     install_package('libffi-dev')
-
 
 @task
 def install_requirements():
