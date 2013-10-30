@@ -353,13 +353,13 @@ def initapp(name):
         sudo("chown -R ubuntu:ubuntu .")
         sudo('pip install django')
         #run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
-        put('./{app_name}')
-        run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
+        put('./{app_name}', './releases/init/')
+        run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
         if app_settings["DOMAIN_NAME"]=='':
             app_settings["DOMAIN_NAME"] = input("What is the HTTP_HOST for this project? ")
             saveAppSettings(app_settings)
 
-        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
+        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
                                                                                                                                                                                                                               dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                                                                                               dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                                                                                               dbhost=app_settings["DATABASE_HOST"],
@@ -441,9 +441,9 @@ def install_requirements(release=None):
         run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
         
-        run('./bin/pip install -r ./releases/{release}/{project_name}/requirements/{requirements_file}.txt'.format(release=release,
+        run('./bin/pip install -r ./releases/{release}/{app_name}/requirements/{requirements_file}.txt'.format(release=release,
                                                                                                                 requirements_file=app_settings["REQUIREMENTSFILE"],
-                                                                                                                project_name=app_settings["APP_NAME"]))
+                                                                                                                app_name=app_settings["APP_NAME"]))
 
 def migrate():
     "Update the database"
@@ -451,8 +451,8 @@ def migrate():
     if not app_settings:
         loadAppSettings()
 
-    with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
-                                                            project_name=app_settings["APP_NAME"])):
+    with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"],
+                                                            app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
             run("SECRET_KEY='{secretkey}' ../../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
@@ -465,11 +465,11 @@ def install_web():
 
     if not app_settings:
         loadAppSettings()
-        
+
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
 
     install_package('nginx')
-    if os.path.exists('./config/{project_name}.key'.format(project_name=app_settings["APP_NAME"])) and os.path.exists('./config/{project_name}.crt'.format(project_name=app_settings["APP_NAME"])):
+    if os.path.exists('./config/{app_name}.key'.format(app_name=app_settings["APP_NAME"])) and os.path.exists('./config/{app_name}.crt'.format(app_name=app_settings["APP_NAME"])):
         put('./config/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
         put('./config/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
         sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
