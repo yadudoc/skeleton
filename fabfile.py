@@ -16,7 +16,9 @@ import time
 
 @task
 def setup_aws_account():
-    if not aws_cfg:
+    try:
+        aws_cfg
+    except NameError:
         loadAwsCfg()
 
     ec2 = connect_to_ec2()
@@ -97,10 +99,14 @@ def setup_aws_account():
 
 @task
 def create_rds(name):
-    if not app_settings:
+    try:
+        app_settings:
+    except NameError:
         loadAppSettings()
 
-    if not aws_cfg:
+    try:
+        aws_cfg
+    except NameError:
         loadAwsCfg()
 
     dbName=app_settings["DATABASE_NAME"]
@@ -163,7 +169,9 @@ def create_instance(name,
                     login_user='ubuntu',
                     ssh_passwd=None):
 
-    if not aws_cfg:
+    try:
+        aws_cfg
+    except NameError:
         loadAwsCfg()
 
     ami=aws_cfg["ubuntu_lts_ami"]
@@ -341,7 +349,10 @@ def initapp(name):
     since it takes time and is unneccesary after the first run
     :return:
     """
-    if not app_settings:
+    
+    try:
+        app_settings
+    except NameError:
         loadAppSettings()
 
     print(_green("--DEPLOYING {}--".format(name)))
@@ -394,7 +405,9 @@ def connect_to_ec2():
     return a connection given credentials imported from config
     """
 
-    if not aws_cfg:
+    try:
+        aws_cfg
+    except NameError:
         loadAwsCfg()
 
     return boto.ec2.connect_to_region(aws_cfg["region"],
@@ -406,7 +419,9 @@ def connect_to_rds():
     return a connection given credentials imported from config
     """
 
-    if not aws_cfg:
+    try:
+        aws_cfg
+    except NameError:
         loadAwsCfg()
 
     return boto.rds.connect_to_region(aws_cfg["region"],
@@ -430,10 +445,14 @@ def update_apt():
 def install_requirements(release=None):
     "Install the required packages from the requirements file using pip"
     # NOTE ... django requires a global install for some reason
-    if not app_settings:
+    try:
+        app_settings
+    except NameError:
         loadAppSettings()
 
-    if not release:
+    try:
+        release
+    except NameError:
         release = 'current'
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
@@ -448,7 +467,9 @@ def install_requirements(release=None):
 def migrate():
     "Update the database"
 
-    if not app_settings:
+    try:
+        app_settings
+    except NameError:
         loadAppSettings()
 
     with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"],
@@ -463,7 +484,9 @@ def migrate():
 def install_web():
     "Install web serving components"
 
-    if not app_settings:
+    try:
+        app_settings
+    except NameError:
         loadAppSettings()
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
