@@ -12,13 +12,13 @@ from django.core.exceptions import ImproperlyConfigured
 
 # Include any local settings that override the defaults.
 try:
-    execfile('site_settings.py')
+    execfile(DJANGO_ROOT + '/settings/site_settings.py')
     # Hack so that the autoreload will detect changes to local_settings.py.
     class dummymodule(str):
         __file__ = property(lambda self: self)
-    sys.modules['site_settings'] = dummymodule('site_settings.py')
-except IOError:
-    pass
+    sys.modules['site_settings'] = dummymodule(DJANGO_ROOT + '/settings/site_settings.py')
+except Exception as e:
+    print e
 
 def get_env_setting(setting):
     """ Get the environment setting or return exception """
