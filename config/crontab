@@ -1,1 +1,1 @@
-1 0 * * * cd /mnt/ym/{{project_name}}/releases/current/{{project_name}} && /mnt/ym/{{project_name}}/bin/python /mnt/ym/{{project_name}}/releases/current/{{project_name}}/manage.py run_nightly_tasks >> /var/log/nightly.log 2>&1
+1 0 * * * cd /mnt/ym/{{project_name}}/releases/current/{{project_name}} && /mnt/ym/{{project_name}}/bin/python /mnt/ym/{{project_name}}/releases/current/{{project_name}}/{{project_name}}/manage.py run_nightly_tasks >> /var/log/nightly.log 2>&1
