@@ -1,7 +1,7 @@
 """Production settings and globals."""
 
 
-from os import environ
+from os import environ,sys
 
 from base import *
 
@@ -9,6 +9,16 @@ from base import *
 # into your settings, but ImproperlyConfigured is an exception.
 from django.core.exceptions import ImproperlyConfigured
 
+
+# Include any local settings that override the defaults.
+try:
+    execfile('site_settings.py')
+    # Hack so that the autoreload will detect changes to local_settings.py.
+    class dummymodule(str):
+        __file__ = property(lambda self: self)
+    sys.modules['site_settings'] = dummymodule('site_settings.py')
+except IOError:
+    pass
 
 def get_env_setting(setting):
     """ Get the environment setting or return exception """
@@ -50,16 +60,8 @@ SERVER_EMAIL = EMAIL_HOST_USER
 ########## END EMAIL CONFIGURATION
 
 ########## DATABASE CONFIGURATION
-DATABASES = {
-	'default': {
-		'ENGINE':'django.db.backends.mysql',
-        'NAME': '<DBNAME>',
-        'USER': '<DBUSER>',
-        'PASSWORD': '<DBPASS>',
-        'HOST': '<DBHOST>',
-        'PORT': '<DBPORT>',
-	}
-}
+if not DATABASES:
+    DATABASES = {}
 ########## END DATABASE CONFIGURATION
 
 
