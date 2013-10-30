@@ -440,9 +440,12 @@ def migrate():
     "Update the database"
     with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
                                                             project_name=app_settings["APP_NAME"])):
-        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
-        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
-        #run('../../../../bin/python manage.py loaddata app/fixtures/')
+        with settings(hide('running')):
+            print _yellow('Running syncdb...')
+            run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            print _yellow('Running migrate...')
+            run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            #run('../../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
@@ -455,9 +458,9 @@ def install_web():
         sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
 
     sudo('pip install uwsgi')
-    put('./config/uwsgi /etc/init.d/uwsgi', use_sudo=True)
-    put('./config/uwsgi.xml /etc/uwsgi.xml', use_sudo=True)
-    put('./config/nginx.conf /etc/nginx/nginx.conf', use_sudo=True)
+    put('./config/uwsgi', '/etc/init.d/uwsgi', use_sudo=True)
+    put('./config/uwsgi.xml', '/etc/uwsgi.xml', use_sudo=True)
+    put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 def start_webservers():
