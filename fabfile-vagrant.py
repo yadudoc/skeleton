@@ -48,7 +48,6 @@ def install_base():
     TODO: read packages from file
     """
     #require('hosts', provided_by=[local,production,start_instance])
-    require('path')
     install_package('aptitude')
     install_package('ntpdate')
     install_package('python-setuptools')

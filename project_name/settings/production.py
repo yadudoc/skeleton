@@ -50,13 +50,27 @@ SERVER_EMAIL = EMAIL_HOST_USER
 ########## END EMAIL CONFIGURATION
 
 ########## DATABASE CONFIGURATION
-DATABASES = {}
+DATABASES = {
+	'default': {
+		'ENGINE':'django.db.backends.mysql',
+        'NAME': '<DBNAME>',
+        'USER': '<DBUSER>',
+        'PASSWORD': '<DBPASS>',
+        'HOST': '<DBHOST>',
+        'PORT': '<DBPORT>',
+	}
+}
 ########## END DATABASE CONFIGURATION
 
 
 ########## CACHE CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#caches
-CACHES = {}
+CACHES = {
+	'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': '/var/tmp/django_cache',
+    }
+}
 ########## END CACHE CONFIGURATION
 
 

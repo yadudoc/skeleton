@@ -24,9 +24,16 @@ try:
     with open("settings.json", "r") as settingsFile:
         app_settings = json.load(settingsFile)
 except Exception as e:
-    print "settings.json is bad"
-
-
+    app_settings = {"DATABASE_USER": "{{project_name}}",
+                    "DATABASE_PASS": "{{project_name}}1234",
+                    "APP_NAME": "{{project_name}}",
+                    "DATABASE_NAME": "{{project_name}}",
+                    "DATABASE_HOST": "",
+                    "DATABASE_PORT": "",
+                    "PROJECTPATH" : "/mnt/ym/{{project_name}}",
+                    "REQUIREMENTSFILE" : "production"}
+    with open("settings.json", "w") as settingsFile:
+        settingsFile.write(json.dumps(app_settings))
 
 #-----FABRIC TASKS-----------
 
@@ -114,8 +121,8 @@ def create_rds(name,
                 dbName=app_settings["DATABASE_NAME"],
                 dbStorageSize=aws_cfg["rds_storage_size"],
                 dbInstanceSize=aws_cfg["rds_instance_size"],
-                dbUser=app_settings["MYSQL_USER"],
-                dbPassword=app_settings["MYSQL_PASS"],
+                dbUser=app_settings["DATABASE_USER"],
+                dbPassword=app_settings["DATABASE_PASS"],
                 group_name=aws_cfg["group_name"]):
 
     conn = connect_to_rds()
@@ -148,13 +155,11 @@ def create_rds(name,
 
     if status == 'available':
         print _green('New rdsInstance %s accessible at %s on port %d') % (db.id, db.endpoint[0], db.endpoint[1])
-
-    conn.create_tags([instance.id], {"Name":name})
     
     dbHost = str(db.endpoint[0])
     dbPort = str(db.endpoint[1])
 
-    app_settings["DATABASE_IP"] = dbHost
+    app_settings["DATABASE_HOST"] = dbHost
     app_settings["DATABASE_PORT"] = dbPort
     with open("settings.json", "w") as settingsFile:
         settingsFile.write(json.dumps(app_settings))
@@ -315,26 +320,28 @@ def terminate_rds_instance(name):
             print(_yellow("Terminated"))
 
 @task
-def bootstrap(name, no_install=False):
+def bootstrap(name):
     """
-    Bootstrap the specified server. Install chef then run chef solo.
+    Bootstrap the specified server.
 
     :param name: The name of the node to be bootstrapped
-    :param no_install: Optionally skip the Chef installation
-    since it takes time and is unneccesary after the first run
     :return:
     """
 
     print(_green("--BOOTSTRAPPING {}--".format(name)))
     f = open("fab_hosts/{}.txt".format(name))
     env.host_string = "ubuntu@{}".format(f.readline().strip())
-    if not no_install:
-        install_chef()
-    run_chef(name)
+    package_list = [ 'aptitude', 'ntpdate', 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'mysql-client', 'libmysqlclient-dev' ]
 
+    update_apt()
+    for package in package_list:
+        install_package(package)
+
+    sudo('aptitude -y build-dep python-mysqldb')
+    install_package('python-mysqldb')
 
 @task
-def deploy(name):
+def initapp(name):
     """
     Bootstrap the specified server. Install chef then run chef solo.
 
@@ -347,8 +354,15 @@ def deploy(name):
     print(_green("--DEPLOYING {}--".format(name)))
     f = open("fab_hosts/{}.txt".format(name))
     env.host_string = "ubuntu@{}".format(f.readline().strip())
-    deploy_app(name)
+    sudo("mkdir -p {path} && cd {path} && mkdir -p releases/init shared packages && virtualenv --distribute .".format(path=app_settings["PROJECTPATH"]))
 
+    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
+        sudo("chown -R ubuntu:ubuntu .")
+        sudo('pip install django')
+        run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
+        run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
+        run("cd ./releases && ln -s init current")
+        install_requirements()
 
 @task
 def restart():
@@ -382,42 +396,33 @@ def connect_to_rds():
     aws_access_key_id=aws_cfg["aws_access_key_id"],
     aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
-def install_chef():
-    """
-    Install chef-solo on the server.
-    """
-    print(_yellow("--INSTALLING CHEF--"))
-    local("knife solo prepare -i {key_file} {host}".format(key_file=env.key_filename,
-                                                           host=env.host_string))
+def install_package(name):
+    """ install a package using APT """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Installing package %s... ' % name),
+        sudo('apt-get -qq -y --force-yes install %s' % name)
+        print _green('[DONE]')
 
-def run_chef(name):
-    """
-    Read configuration from the appropriate node file and bootstrap
-    the node
+def update_apt():
+    """ run apt-get update """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Updating APT cache... '),
+        sudo('apt-get update')
+        print _green('[DONE]')
 
-    :param name:
-    :return:
-    """
-    print(_yellow("--RUNNING CHEF--"))
-    node = "./nodes/{name}_node.json".format(name=name)
-    with lcd('chef_files'):
-        local("knife solo cook -i {key_file} {host} {node}".format(key_file=env.key_filename,
-                                                           host=env.host_string,
-                                                           node=node))
+def install_requirements(release=None):
+    "Install the required packages from the requirements file using pip"
+    # NOTE ... django requires a global install for some reason
+    #require('release', provided_by=[collect])
+    if not release:
+        release = 'current'
 
-def deploy_app(name):
-    print(_yellow("--RUNNING CHEF--"))
-    node = "./nodes/deploy_node.json".format(name=name)
+    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
+        # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
+        run('./bin/pip install --upgrade distribute==0.6.28')
+        # run('./bin/pip install --upgrade versiontools')
+        
+        run('./bin/pip install -r ./releases/{release}/{project_name}/requirements/{requirements_file}.txt'.format(release=release,
+                                                                                                                requirements_file=app_settings["REQUIREMENTSFILE"],
+                                                                                                                project_name=app_settings["APP_NAME"]))
 
-    with lcd('chef_files'):
-        try:
-            # skip updating the Berkshelf cookbooks to save time
-            os.rename("chef_files/Berksfile", "chef_files/hold_Berksfile")
-            local("knife solo cook -i {key_file} {host} {node}".format(key_file=env.key_filename,
-                                                           host=env.host_string,
-                                                           node=node))
-            restart()
-        except Exception as e:
-            print e
-        finally:
-            os.rename("chef_files/hold_Berksfile", "chef_files/Berksfile")

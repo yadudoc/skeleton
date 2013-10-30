@@ -1,0 +1,11 @@
+aws_access_key_id: <YOUR KEY HERE>
+aws_secret_access_key: <YOUR SECRET KEY HERE>
+region: "<YOUR REGION HERE, e.g. us-east-1>"
+key_name: <YOUR EC2 KEY NAME>
+group_name: <YOUR SECURITY GROUP NAME>
+key_dir: <WHERE ARE YOUR KEYS>
+ssh_port: 22
+instance_type: "t1.micro"
+ubuntu_lts_ami: "ami-d0f89fb9"
+rds_storage_size: <RDS STORAGE IN GB>
+rds_instance_size: <RDS INSTANCE SIZE>
