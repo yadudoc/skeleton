@@ -1,4 +1,4 @@
-import os, json
+import os, json, string, random
 from tempfile import mkdtemp
 from contextlib import contextmanager
 
@@ -31,7 +31,8 @@ except Exception as e:
                     "DATABASE_HOST": "",
                     "DATABASE_PORT": "",
                     "PROJECTPATH" : "/mnt/ym/{{project_name}}",
-                    "REQUIREMENTSFILE" : "production"}
+                    "REQUIREMENTSFILE" : "production",
+                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))}
     with open("settings.json", "w") as settingsFile:
         settingsFile.write(json.dumps(app_settings))
 
@@ -437,12 +438,10 @@ def install_requirements(release=None):
 
 def migrate():
     "Update the database"
-    require('project_name')
-    require('init_file')
     with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
                                                             project_name=app_settings["APP_NAME"])):
-        run('../../../../bin/python manage.py syncdb --noinput')
-        run('../../../../bin/python manage.py migrate')
+        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings[DJANGOSECRETKEY]))
+        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings[DJANGOSECRETKEY]))
         #run('../../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
