@@ -362,10 +362,11 @@ def initapp(name):
         run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
         run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
         run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" releases/init/{app_name}/{app_name}/settings/production.py'.format(dbname=app_settings["DATABASE_NAME"],
-                                                                                                                                                                   dbuser=app_settings["DATABASE_USER"],
-                                                                                                                                                                   dbpass=app_settings["DATABASE_PASS"],
-                                                                                                                                                                   dbhost=app_settings["DATABASE_HOST"],
-                                                                                                                                                                   dbport=app_settings["DATABASE_PORT"]))
+                                                                                                                                                                                                                              dbuser=app_settings["DATABASE_USER"],
+                                                                                                                                                                                                                              dbpass=app_settings["DATABASE_PASS"],
+                                                                                                                                                                                                                              dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                                                                                                                              dbport=app_settings["DATABASE_PORT"],
+                                                                                                                                                                                                                              app_name=app_settings["APP_NAME"]))
         run("cd ./releases && ln -s init current")
         install_requirements()
         migrate()
