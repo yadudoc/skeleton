@@ -361,8 +361,16 @@ def initapp(name):
         sudo('pip install django')
         run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
         run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
+        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" releases/init/{app_name}/{app_name}/settings/production.py'.format(dbname=app_settings["DATABASE_NAME"],
+                                                                                                                                                                   dbuser=app_settings["DATABASE_USER"],
+                                                                                                                                                                   dbpass=app_settings["DATABASE_PASS"],
+                                                                                                                                                                   dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                                                                   dbport=app_settings["DATABASE_PORT"]))
         run("cd ./releases && ln -s init current")
         install_requirements()
+        migrate()
+        install_web()
+        start_webservers()
 
 @task
 def restart():
@@ -419,10 +427,40 @@ def install_requirements(release=None):
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
-        run('./bin/pip install --upgrade distribute==0.6.28')
+        run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
         
         run('./bin/pip install -r ./releases/{release}/{project_name}/requirements/{requirements_file}.txt'.format(release=release,
                                                                                                                 requirements_file=app_settings["REQUIREMENTSFILE"],
                                                                                                                 project_name=app_settings["APP_NAME"]))
+
+def migrate():
+    "Update the database"
+    require('project_name')
+    require('init_file')
+    with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
+                                                            project_name=app_settings["APP_NAME"])):
+        run('../../../../bin/python manage.py syncdb --noinput')
+        run('../../../../bin/python manage.py migrate')
+        #run('../../../../bin/python manage.py loaddata app/fixtures/')
+
+def install_web():
+    sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
+
+    install_package('nginx')
+    if os.path.exists('./config/{project_name}.key'.format(project_name=app_settings["APP_NAME"])) and os.path.exists('./config/{project_name}.crt'):
+        put('./config/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
+        put('./config/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
+        sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
+        sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
+
+    sudo('pip install uwsgi')
+    put('./config/uwsgi /etc/init.d/uwsgi', use_sudo=True)
+    put('./config/uwsgi.xml /etc/uwsgi.xml', use_sudo=True)
+    put('./config/nginx.conf /etc/nginx/nginx.conf', use_sudo=True)
+    sudo('chmod 755 /etc/init.d/uwsgi')
+
+def start_webservers():
+    sudo('/etc/init.d/nginx start')
+    sudo('/etc/init.d/uwsgi start')
 
