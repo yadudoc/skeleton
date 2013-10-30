@@ -32,7 +32,8 @@ except Exception as e:
                     "DATABASE_PORT": "",
                     "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                     "REQUIREMENTSFILE" : "production",
-                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))}
+                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))
+                    }
     with open("settings.json", "w") as settingsFile:
         settingsFile.write(json.dumps(app_settings))
 
@@ -165,7 +166,7 @@ def create_rds(name,
     with open("settings.json", "w") as settingsFile:
         settingsFile.write(json.dumps(app_settings))
 
-    dbConnString = dbHostString + ":" + dbPort
+    dbConnString = dbHost + ":" + dbPort
     return dbConnString
 
 
@@ -442,16 +443,16 @@ def migrate():
                                                             project_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
-            run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            run("SECRET_KEY='{secretkey}' ../../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
             print _yellow('Running migrate...')
-            run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            run("SECRET_KEY='{secretkey}' ../../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
             #run('../../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
 
     install_package('nginx')
-    if os.path.exists('./config/{project_name}.key'.format(project_name=app_settings["APP_NAME"])) and os.path.exists('./config/{project_name}.crt'):
+    if os.path.exists('./config/{project_name}.key'.format(project_name=app_settings["APP_NAME"])) and os.path.exists('./config/{project_name}.crt'.format(project_name=app_settings["APP_NAME"])):
         put('./config/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
         put('./config/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
         sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
