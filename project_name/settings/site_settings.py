@@ -11,3 +11,4 @@ DATABASES = {
         'PORT': '<DBPORT>',
 	}
 }
+ALLOWED_HOSTS = [ '.' + '<DOMAIN_NAME>']

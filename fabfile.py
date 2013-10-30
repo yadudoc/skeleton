@@ -12,35 +12,12 @@ import boto.rds
 from config import Config
 import time
 
-# import configuration variables from untracked config file
-try:
-    aws_cfg = Config(open("aws.cfg"))
-    env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
-                                                       aws_cfg["key_name"] + ".pem"))
-except Exception as e:
-    print "aws.cfg not found. %s" %e
-
-try:
-    with open("settings.json", "r") as settingsFile:
-        app_settings = json.load(settingsFile)
-except Exception as e:
-    app_settings = {"DATABASE_USER": "{{project_name}}",
-                    "DATABASE_PASS": "{{project_name}}1234",
-                    "APP_NAME": "{{project_name}}",
-                    "DATABASE_NAME": "{{project_name}}",
-                    "DATABASE_HOST": "",
-                    "DATABASE_PORT": "",
-                    "PROJECTPATH" : "/mnt/ym/{{project_name}}",
-                    "REQUIREMENTSFILE" : "production",
-                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))
-                    }
-    with open("settings.json", "w") as settingsFile:
-        settingsFile.write(json.dumps(app_settings))
-
 #-----FABRIC TASKS-----------
 
 @task
 def setup_aws_account():
+    if not aws_cfg:
+        loadAwsCfg()
 
     ec2 = connect_to_ec2()
 
@@ -119,13 +96,19 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name,
-                dbName=app_settings["DATABASE_NAME"],
-                dbStorageSize=aws_cfg["rds_storage_size"],
-                dbInstanceSize=aws_cfg["rds_instance_size"],
-                dbUser=app_settings["DATABASE_USER"],
-                dbPassword=app_settings["DATABASE_PASS"],
-                group_name=aws_cfg["group_name"]):
+def create_rds(name):
+    if not app_settings:
+        loadAppSettings()
+
+    if not aws_cfg:
+        loadAwsCfg()
+
+    dbName=app_settings["DATABASE_NAME"]
+    dbStorageSize=aws_cfg["rds_storage_size"]
+    dbInstanceSize=aws_cfg["rds_instance_size"]
+    dbUser=app_settings["DATABASE_USER"]
+    dbPassword=app_settings["DATABASE_PASS"]
+    group_name=aws_cfg["group_name"]
 
     conn = connect_to_rds()
 
@@ -171,19 +154,25 @@ def create_rds(name,
 
 
 @task
-def create_instance(name, ami=aws_cfg["ubuntu_lts_ami"],
-                    instance_type=aws_cfg["instance_type"],
-                    key_name=aws_cfg["key_name"],
+def create_instance(name, 
                     key_extension='.pem',
-                    key_dir='~/.ec2',
-                    group_name=aws_cfg["group_name"],
-                    ssh_port=22,
                     cidr='0.0.0.0/0',
                     tag=None,
                     user_data=None,
                     cmd_shell=True,
                     login_user='ubuntu',
                     ssh_passwd=None):
+
+    if not aws_cfg:
+        loadAwsCfg()
+
+    ami=aws_cfg["ubuntu_lts_ami"]
+    instance_type=aws_cfg["instance_type"]
+    key_name=aws_cfg["key_name"]
+    key_dir=aws_cfg["key_dir"]
+    group_name=aws_cfg["group_name"]
+    ssh_port=aws_cfg["ssh_port"]
+
     """
     Launch an instance and wait for it to start running.
     Returns a tuple consisting of the Instance object and the CmdShell
@@ -345,13 +334,15 @@ def bootstrap(name):
 @task
 def initapp(name):
     """
-    Bootstrap the specified server. Install chef then run chef solo.
+    Bootstrap the specified server. Install and setup the local project path.
 
     :param name: The name of the node to be bootstrapped
     :param no_install: Optionally skip the Chef installation
     since it takes time and is unneccesary after the first run
     :return:
     """
+    if not app_settings:
+        loadAppSettings()
 
     print(_green("--DEPLOYING {}--".format(name)))
     f = open("fab_hosts/{}.txt".format(name))
@@ -361,14 +352,20 @@ def initapp(name):
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         sudo("chown -R ubuntu:ubuntu .")
         sudo('pip install django')
-        run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
+        #run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
+        put('./{app_name}')
         run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
-        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" releases/init/{app_name}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
+        if app_settings["DOMAIN_NAME"]=='':
+            app_settings["DOMAIN_NAME"] = input("What is the HTTP_HOST for this project? ")
+            saveAppSettings(app_settings)
+
+        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
                                                                                                                                                                                                                               dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                                                                                               dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                                                                                               dbhost=app_settings["DATABASE_HOST"],
                                                                                                                                                                                                                               dbport=app_settings["DATABASE_PORT"],
                                                                                                                                                                                                                               djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                                                                                                                                                                              domain_name=app_settings["DOMAIN_NAME"],
                                                                                                                                                                                                                               app_name=app_settings["APP_NAME"]))
         run("cd ./releases && ln -s init current")
         install_requirements()
@@ -379,10 +376,10 @@ def initapp(name):
 @task
 def restart():
     """
-    Reload nginx/gunicorn
+    Reload nginx/uwsgi
     """
     with settings(warn_only=True):
-        sudo("supervisorctl restart {app_name}".format(app_name=app_settings["APP_NAME"]))
+        sudo("/etc/init.d/uwsgi restart")
         sudo('/etc/init.d/nginx reload')
 
 #----------HELPER FUNCTIONS-----------
@@ -396,6 +393,10 @@ def connect_to_ec2():
     """
     return a connection given credentials imported from config
     """
+
+    if not aws_cfg:
+        loadAwsCfg()
+
     return boto.ec2.connect_to_region(aws_cfg["region"],
     aws_access_key_id=aws_cfg["aws_access_key_id"],
     aws_secret_access_key=aws_cfg["aws_secret_access_key"])
@@ -404,6 +405,10 @@ def connect_to_rds():
     """
     return a connection given credentials imported from config
     """
+
+    if not aws_cfg:
+        loadAwsCfg()
+
     return boto.rds.connect_to_region(aws_cfg["region"],
     aws_access_key_id=aws_cfg["aws_access_key_id"],
     aws_secret_access_key=aws_cfg["aws_secret_access_key"])
@@ -425,7 +430,9 @@ def update_apt():
 def install_requirements(release=None):
     "Install the required packages from the requirements file using pip"
     # NOTE ... django requires a global install for some reason
-    #require('release', provided_by=[collect])
+    if not app_settings:
+        loadAppSettings()
+
     if not release:
         release = 'current'
 
@@ -440,6 +447,10 @@ def install_requirements(release=None):
 
 def migrate():
     "Update the database"
+
+    if not app_settings:
+        loadAppSettings()
+
     with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
                                                             project_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
@@ -450,6 +461,11 @@ def migrate():
             #run('../../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
+    "Install web serving components"
+
+    if not app_settings:
+        loadAppSettings()
+        
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
 
     install_package('nginx')
@@ -468,4 +484,38 @@ def install_web():
 def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
+
+def saveAppSettings(appSettingsJson):
+    with open("settings.json", "w") as settingsFile:
+        settingsFile.write(json.dumps(appSettingsJson))
+
+def loadAppSettings():
+    try:
+        with open("settings.json", "r") as settingsFile:
+            app_settings = json.load(settingsFile)
+    except Exception as e:
+        generateDefaultAppSettings()
+        saveAppSettings(app_settings)
+
+def generateDefaultAppSettings():
+    app_settings = {"DATABASE_USER": "{{project_name}}",
+                    "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64)),
+                    "APP_NAME": "{{project_name}}",
+                    "DATABASE_NAME": "{{project_name}}",
+                    "DATABASE_HOST": "",
+                    "DATABASE_PORT": "",
+                    "PROJECTPATH" : "/mnt/ym/{{project_name}}",
+                    "REQUIREMENTSFILE" : "production",
+                    "DOMAIN_NAME" : "",
+                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))
+                    }
+
+def loadAwsCfg():
+    try:
+        aws_cfg = Config(open("aws.cfg"))
+        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
+                                                           aws_cfg["key_name"] + ".pem"))
+    except Exception as e:
+        print "aws.cfg not found. %s" %e
+
 
