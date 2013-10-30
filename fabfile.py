@@ -440,8 +440,8 @@ def migrate():
     "Update the database"
     with cd('{path}/releases/current/{project_name}/{project_name}'.format(path=app_settings["PROJECTPATH"],
                                                             project_name=app_settings["APP_NAME"])):
-        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings[DJANGOSECRETKEY]))
-        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings[DJANGOSECRETKEY]))
+        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py syncdb --noinput'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
+        run('SECRET_KEY={secretkey} ../../../../bin/python manage.py migrate'.format(secretkey=app_settings["DJANGOSECRETKEY"]))
         #run('../../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
