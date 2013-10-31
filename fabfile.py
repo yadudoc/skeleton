@@ -100,7 +100,7 @@ def setup_aws_account():
 @task
 def create_rds(name):
     try:
-        app_settings:
+        app_settings
     except NameError:
         loadAppSettings()
 
