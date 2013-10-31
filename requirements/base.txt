@@ -1,26 +1,25 @@
-Django==1.5.1
-bpython==0.12
-django-braces==1.2.2
-django-model-utils==1.4.0
-logutils==0.3.3
-South==0.8.1
-
-Fabric==1.7.0
-awscli==1.1.1
-bcdoc==0.10.0
-boto==2.15.0
-botocore==0.18.0
-colorama==0.2.5
-config==0.3.9
-distribute==0.7.3
-docutils==0.11
-jmespath==0.0.2
-paramiko==1.11.2
-ply==3.4
-pyasn1==0.1.7
-pycrypto==2.6
-python-dateutil==2.1
-requests==1.2.3
-rsa==3.1.2
-six==1.4.1
-wsgiref==0.1.2
+Django==1.5.1 					# BSD
+bpython==0.12					# MIT
+django-braces==1.2.2			# BSD
+django-model-utils==1.4.0		# BSD
+logutils==0.3.3					# BSD
+South==0.8.1 					# Apache Software License
+Fabric==1.7.0 					# BSD
+awscli==1.1.1 					# Apache License 2.0
+bcdoc==0.10.0 					# Apache License 2.0
+boto==2.15.0 					# MIT
+botocore==0.18.0				# Free
+colorama==0.2.5					# BSD
+config==0.3.9					# Vinay Sajip 
+distribute==0.7.3				# PSF or ZPL
+docutils==0.11					# public domain, Python, 2-Clause BSD, GPL 3 
+jmespath==0.0.2					# Free
+paramiko==1.11.2 				# LGPL
+ply==3.4						# BSD
+pyasn1==0.1.7					# BSD
+pycrypto==2.6 					# public domain
+python-dateutil==2.1 			# BSD
+requests==1.2.3 				# Apache License 2.0
+rsa==3.1.2 						# Apache License 2.0
+six==1.4.1 						# MIT
+wsgiref==0.1.2 					# PSF or ZPL
