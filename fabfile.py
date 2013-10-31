@@ -517,6 +517,7 @@ def loadAppSettings():
     try:
         with open("settings.json", "r") as settingsFile:
             app_settings = json.load(settingsFile)
+            return app_settings
     except Exception as e:
         generateDefaultAppSettings()
         saveAppSettings(app_settings)
@@ -540,6 +541,7 @@ def loadAwsCfg():
         aws_cfg = Config(open("aws.cfg"))
         env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
                                                            aws_cfg["key_name"] + ".pem"))
+        retun aws_cfg
     except Exception as e:
         print "aws.cfg not found. %s" %e
         sys.exit()
