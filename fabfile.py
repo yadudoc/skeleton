@@ -382,7 +382,7 @@ def getec2instances():
                 IdentityFile {key_file_path}
                 ForwardAgent yes
                 """.format(name=taggedHost[1], dns=taggedHost[0], key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + "pem"))
-                with open(os.path.expanduser("~/.ssh/test_config"), "a+") as ssh_config:
+                with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
                     ssh_config.seek(0)
                     if not taggedHost[0] in ssh_config.read():                    
                         ssh_config.seek(0,2)
