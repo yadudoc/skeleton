@@ -286,6 +286,10 @@ def terminate_ec2_instance(name):
     """
     Terminates all servers with the given name
     """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
 
     print(_green("Started terminating {}...".format(name)))
 
@@ -309,6 +313,10 @@ def terminate_rds_instance(name):
     """
     Terminates all rds instances with the given name
     """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
 
     print(_green("Started terminating {}...".format(name)))
 
@@ -330,6 +338,11 @@ def getec2instances():
     """
     Returns a list of all ec2 instances
     """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
     # Get a list of instance IDs for the ELB.
     instances = []
     conn = boto.connect_elb()
@@ -345,22 +358,46 @@ def getec2instances():
             instance_ids.append(i.id)
  
     # Get the public CNAMES for those instances.
-    hosts = []
+    taggedHosts = []
     for host in conn.get_all_instances(instance_ids):
-        hosts.extend([i.public_dns_name for i in host.instances])
-    hosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+        taggedHosts.extend([[i.public_dns_name, i.tags['Name'],] for i in host.instances])
+        taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+    taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
  
-    if not any(hosts):
+    if not any(taggedHosts):
         print "no hosts found"
     else:
-        print hosts
-    return hosts
+        if not os.path.isdir("fab_hosts"):
+            os.mkdir('fab_hosts')
+        for taggedHost in taggedHosts:
+            with open("fab_hosts/{}.txt".format(taggedHost[1]), "w") as fabHostFile:
+                fabHostFile.write(taggedHost[0])
+            print taggedHost[0]
+            if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
+                ssh_slug = """
+                Host {name}
+                HostName {dns}
+                Port 22
+                User ubuntu
+                IdentityFile {key_file_path}
+                ForwardAgent yes
+                """.format(name=taggedHost[1], dns=taggedHost[0], key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + "pem"))
+                with open(os.path.expanduser("~/.ssh/test_config"), "a+") as ssh_config:
+                    ssh_config.seek(0)
+                    if not taggedHost[0] in ssh_config.read():                    
+                        ssh_config.seek(0,2)
+                        ssh_config.write("\n{}\n".format(ssh_slug))
 
 @task
 def getrdsinstances():
     """
     Returns a list of all rds instances
     """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
     conn = connect_to_rds()
     # Get the public CNAMES for all instances.
     rdsInstances = []
