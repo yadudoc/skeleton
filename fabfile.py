@@ -1,4 +1,9 @@
-import os, json, string, random
+import boto
+import boto.ec2
+import boto.rds
+
+import os, time, json, string, random, sys
+
 from tempfile import mkdtemp
 from contextlib import contextmanager
 
@@ -6,11 +11,7 @@ from fabric.operations import put
 from fabric.api import env, local, sudo, run, cd, prefix, task, settings, execute
 from fabric.colors import green as _green, yellow as _yellow, red as _red
 from fabric.context_managers import hide, show, lcd
-import boto
-import boto.ec2
-import boto.rds
 from config import Config
-import time
 
 #-----FABRIC TASKS-----------
 
@@ -19,7 +20,7 @@ def setup_aws_account():
     try:
         aws_cfg
     except NameError:
-        loadAwsCfg()
+        aws_cfg=loadAwsCfg()
 
     ec2 = connect_to_ec2()
 
@@ -102,12 +103,12 @@ def create_rds(name):
     try:
         app_settings
     except NameError:
-        loadAppSettings()
+        app_settings=loadAppSettings()
 
     try:
         aws_cfg
     except NameError:
-        loadAwsCfg()
+        aws_cfg=loadAwsCfg()
 
     dbName=app_settings["DATABASE_NAME"]
     dbStorageSize=aws_cfg["rds_storage_size"]
@@ -172,7 +173,7 @@ def create_instance(name,
     try:
         aws_cfg
     except NameError:
-        loadAwsCfg()
+        aws_cfg=loadAwsCfg()
 
     ami=aws_cfg["ubuntu_lts_ami"]
     instance_type=aws_cfg["instance_type"]
@@ -353,7 +354,7 @@ def initapp(name):
     try:
         app_settings
     except NameError:
-        loadAppSettings()
+        app_settings=loadAppSettings()
 
     print(_green("--DEPLOYING {}--".format(name)))
     f = open("fab_hosts/{}.txt".format(name))
@@ -408,7 +409,7 @@ def connect_to_ec2():
     try:
         aws_cfg
     except NameError:
-        loadAwsCfg()
+        aws_cfg=loadAwsCfg()
 
     return boto.ec2.connect_to_region(aws_cfg["region"],
     aws_access_key_id=aws_cfg["aws_access_key_id"],
@@ -422,7 +423,7 @@ def connect_to_rds():
     try:
         aws_cfg
     except NameError:
-        loadAwsCfg()
+        aws_cfg=loadAwsCfg()
 
     return boto.rds.connect_to_region(aws_cfg["region"],
     aws_access_key_id=aws_cfg["aws_access_key_id"],
@@ -448,7 +449,7 @@ def install_requirements(release=None):
     try:
         app_settings
     except NameError:
-        loadAppSettings()
+        app_settings=loadAppSettings()
 
     try:
         release
@@ -470,7 +471,7 @@ def migrate():
     try:
         app_settings
     except NameError:
-        loadAppSettings()
+        app_settings=loadAppSettings()
 
     with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"],
                                                             app_name=app_settings["APP_NAME"])):
@@ -487,7 +488,7 @@ def install_web():
     try:
         app_settings
     except NameError:
-        loadAppSettings()
+        app_settings=loadAppSettings()
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
 
@@ -519,6 +520,7 @@ def loadAppSettings():
     except Exception as e:
         generateDefaultAppSettings()
         saveAppSettings(app_settings)
+        sys.exit()
 
 def generateDefaultAppSettings():
     app_settings = {"DATABASE_USER": "{{project_name}}",
@@ -540,5 +542,4 @@ def loadAwsCfg():
                                                            aws_cfg["key_name"] + ".pem"))
     except Exception as e:
         print "aws.cfg not found. %s" %e
-
-
+        sys.exit()
