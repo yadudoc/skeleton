@@ -517,15 +517,15 @@ def loadAppSettings():
     try:
         with open("settings.json", "r") as settingsFile:
             app_settings = json.load(settingsFile)
-            return app_settings
     except Exception as e:
-        generateDefaultAppSettings()
+        app_settings = generateDefaultAppSettings()
         saveAppSettings(app_settings)
-        sys.exit()
+    return app_settings
 
 def generateDefaultAppSettings():
     app_settings = {"DATABASE_USER": "{{project_name}}",
-                    "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64)),
+                    # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                    "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
                     "APP_NAME": "{{project_name}}",
                     "DATABASE_NAME": "{{project_name}}",
                     "DATABASE_HOST": "",
@@ -535,6 +535,7 @@ def generateDefaultAppSettings():
                     "DOMAIN_NAME" : "",
                     "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))
                     }
+    return app_settings
 
 def loadAwsCfg():
     try:
