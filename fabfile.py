@@ -541,7 +541,7 @@ def loadAwsCfg():
         aws_cfg = Config(open("aws.cfg"))
         env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
                                                            aws_cfg["key_name"] + ".pem"))
-        retun aws_cfg
+        return aws_cfg
     except Exception as e:
         print "aws.cfg not found. %s" %e
         sys.exit()
