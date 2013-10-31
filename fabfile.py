@@ -14,9 +14,11 @@ from fabric.context_managers import hide, show, lcd
 from config import Config
 
 #-----FABRIC TASKS-----------
-
 @task
 def setup_aws_account():
+    """
+    Attempts to setup key pairs and ec2 security groups provided in aws.cfg
+    """
     try:
         aws_cfg
     except NameError:
@@ -100,6 +102,11 @@ def setup_aws_account():
 
 @task
 def create_rds(name):
+    """
+    Launch an RDS instance with name provided
+
+    returns a string consisting of rds host and port
+    """
     try:
         app_settings
     except NameError:
@@ -156,8 +163,7 @@ def create_rds(name):
     with open("settings.json", "w") as settingsFile:
         settingsFile.write(json.dumps(app_settings))
 
-    dbConnString = dbHost + ":" + dbPort
-    return dbConnString
+    return str(db.endpoint)
 
 
 @task
@@ -169,18 +175,6 @@ def create_instance(name,
                     cmd_shell=True,
                     login_user='ubuntu',
                     ssh_passwd=None):
-
-    try:
-        aws_cfg
-    except NameError:
-        aws_cfg=loadAwsCfg()
-
-    ami=aws_cfg["ubuntu_lts_ami"]
-    instance_type=aws_cfg["instance_type"]
-    key_name=aws_cfg["key_name"]
-    key_dir=aws_cfg["key_dir"]
-    group_name=aws_cfg["group_name"]
-    ssh_port=aws_cfg["ssh_port"]
 
     """
     Launch an instance and wait for it to start running.
@@ -223,6 +217,18 @@ def create_instance(name,
     ssh_passwd The password for your SSH key if it is encrypted with a
                passphrase.
     """
+
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
+    ami=aws_cfg["ubuntu_lts_ami"]
+    instance_type=aws_cfg["instance_type"]
+    key_name=aws_cfg["key_name"]
+    key_dir=aws_cfg["key_dir"]
+    group_name=aws_cfg["group_name"]
+    ssh_port=aws_cfg["ssh_port"]
 
     print(_green("Started creating {}...".format(name)))
     print(_yellow("...Creating EC2 instance..."))
@@ -320,6 +326,55 @@ def terminate_rds_instance(name):
             print(_yellow("Terminated"))
 
 @task
+def getec2instances():
+    """
+    Returns a list of all ec2 instances
+    """
+    # Get a list of instance IDs for the ELB.
+    instances = []
+    conn = boto.connect_elb()
+    for elb in conn.get_all_load_balancers():
+        instances.extend(elb.instances)
+ 
+    # Get the instance IDs for the reservations.
+    conn = connect_to_ec2()
+    reservations = conn.get_all_instances([i.id for i in instances])
+    instance_ids = []
+    for reservation in reservations:
+        for i in reservation.instances:
+            instance_ids.append(i.id)
+ 
+    # Get the public CNAMES for those instances.
+    hosts = []
+    for host in conn.get_all_instances(instance_ids):
+        hosts.extend([i.public_dns_name for i in host.instances])
+    hosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+ 
+    if not any(hosts):
+        print "no hosts found"
+    else:
+        print hosts
+    return hosts
+
+@task
+def getrdsinstances():
+    """
+    Returns a list of all rds instances
+    """
+    conn = connect_to_rds()
+    # Get the public CNAMES for all instances.
+    rdsInstances = []
+    for rdsInstance in conn.get_all_dbinstances():
+        rdsInstances.extend([i.public_dns_name for i in rdsInstance.instances])
+    rdsInstances.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+ 
+    if not any(rdsInstances):
+        print "no rds instances found"
+    else:
+        print rdsInstances
+    return rdsInstances
+
+@task
 def bootstrap(name):
     """
     Bootstrap the specified server.
@@ -364,14 +419,14 @@ def initapp(name):
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         sudo("chown -R ubuntu:ubuntu .")
         sudo('pip install django')
-        #run('cd releases/init && django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab {app_name} && cd ../..'.format(app_name=app_settings["APP_NAME"]))
-        put('./{app_name}', './releases/init/')
+        put('./{app_name}'.format(app_name=app_settings["APP_NAME"]), './releases/init/')
         run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
         if app_settings["DOMAIN_NAME"]=='':
-            app_settings["DOMAIN_NAME"] = input("What is the HTTP_HOST for this project? ")
+            app_settings["DOMAIN_NAME"] = raw_input("What is the HTTP_HOST for this project? (ex: expacore.com) ")
             saveAppSettings(app_settings)
 
-        run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
+        with settings(hide('running', 'stdout'), warn_only=True):
+            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
                                                                                                                                                                                                                               dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                                                                                               dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                                                                                               dbhost=app_settings["DATABASE_HOST"],
@@ -403,7 +458,7 @@ def _virtualenv():
 
 def connect_to_ec2():
     """
-    return a connection given credentials imported from config
+    return an ec2 connection given credentials imported from config
     """
 
     try:
@@ -417,7 +472,7 @@ def connect_to_ec2():
 
 def connect_to_rds():
     """
-    return a connection given credentials imported from config
+    return an rds connection given credentials imported from config
     """
 
     try:
