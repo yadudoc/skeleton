@@ -531,7 +531,7 @@ def install_package(name):
     with settings(hide('running', 'stdout'), warn_only=True):
         print _yellow('Installing package %s... ' % name),
         sudo('apt-get -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')™
+        print _green('[DONE]')
 
 def update_apt():
     """ run apt-get update """
