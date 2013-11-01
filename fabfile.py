@@ -634,7 +634,6 @@ def collect():
 
 def symlink_current_release(release):
     "Symlink our current release"
-
     try:
         app_settings
     except NameError:
@@ -647,7 +646,6 @@ def symlink_current_release(release):
 
 def upload_tar_from_local(release=None):        
     "Create an archive from the current Git master branch and upload it"
-    
     try:
         app_settings
     except NameError:
@@ -656,7 +654,7 @@ def upload_tar_from_local(release=None):
     if release is None:
         release = collect()
     
-    run('mkdir -p {path}/releases/{release}'.format(path=app_settings[PROJECTPATH],release=release))
+    run('mkdir -p {path}/releases/{release}'.format(path=app_settings["PROJECTPATH"],release=release))
     put('{release}.tar.bz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
     run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
     sudo('rm {path}/packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
@@ -666,7 +664,6 @@ def addToSshConfig(name,dns):
     """
     Add provided hostname and dns to ssh_config with config template below
     """
-
     try:
         aws_cfg
     except NameError:
