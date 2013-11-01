@@ -645,8 +645,14 @@ def symlink_current_release(release):
                                                                       release=release))
     
 
-def upload_tar_from_local(release=None):
+def upload_tar_from_local(release=None):        
     "Create an archive from the current Git master branch and upload it"
+    
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadAppSettings()
+
     if release is None:
         release = collect()
     
