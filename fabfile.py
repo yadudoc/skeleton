@@ -397,8 +397,7 @@ def bootstrap(name):
     """
 
     print(_green("--BOOTSTRAPPING {}--".format(name)))
-    f = open("fab_hosts/{}.txt".format(name))
-    env.host_string = "ubuntu@{}".format(f.readline().strip())
+    setHostFromName(name)
     package_list = [ 'aptitude', 'ntpdate', 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'mysql-client', 'libmysqlclient-dev' ]
 
     update_apt()
@@ -427,8 +426,7 @@ def initapp(name):
     release = collect()
 
     print(_green("--DEPLOYING {}--".format(name)))
-    f = open("fab_hosts/{}.txt".format(name))
-    env.host_string = "ubuntu@{}".format(f.readline().strip())
+    setHostFromName(name)
     sudo("mkdir -p {path} && cd {path} && mkdir -p releases/{release} shared packages && virtualenv --distribute .".format(path=app_settings["PROJECTPATH"],
                                                                                                                            release=release))
 
@@ -459,10 +457,27 @@ def initapp(name):
         start_webservers()
 
 @task
-def restart():
+def deploycore(name):
+    """
+    Deploy expa core module to instance with name alias
+    """
+    setHostFromName(name)
+
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadAppSettings()
+
+    sudo('[ -d /mnt/ym ] || mkdir /mnt/ym ; cd /mnt/ym ; git clone https://github.com/expa/core.git')
+    sudo('chown -R ubuntu:ubuntu /mnt/ym/core')
+
+@task
+def restart(name):
     """
     Reload nginx/uwsgi
     """
+    setHostFromName(name)
+    
     with settings(warn_only=True):
         sudo("/etc/init.d/uwsgi restart")
         sudo('/etc/init.d/nginx reload')
@@ -682,3 +697,8 @@ def addToSshConfig(name,dns):
         if not taggedHost[0] in ssh_config.read():
             ssh_config.seek(0,2)
             ssh_config.write("\n{}\n".format(ssh_slug))
+
+def setHostFromName(name):
+    f = open("fab_hosts/{}.txt".format(name))
+    env.host_string = "ubuntu@{}".format(f.readline().strip())
+
