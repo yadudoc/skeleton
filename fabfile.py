@@ -547,10 +547,10 @@ def migrate():
                                                             app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
-            run("SECRET_KEY='{secretkey}' ../../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
             print _yellow('Running migrate...')
-            run("SECRET_KEY='{secretkey}' ../../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
-            #run('../../../../bin/python manage.py loaddata app/fixtures/')
+            run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
+            #run('../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web():
     "Install web serving components"
@@ -563,9 +563,9 @@ def install_web():
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
 
     install_package('nginx')
-    if os.path.exists('./config/{app_name}.key'.format(app_name=app_settings["APP_NAME"])) and os.path.exists('./config/{app_name}.crt'.format(app_name=app_settings["APP_NAME"])):
-        put('./config/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
-        put('./config/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
+    if os.path.exists('./keys/{app_name}.key'.format(app_name=app_settings["APP_NAME"])) and os.path.exists('./keys/{app_name}.crt'.format(app_name=app_settings["APP_NAME"])):
+        put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
+        put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
         sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
         sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
 
@@ -639,8 +639,8 @@ def symlink_current_release(release):
     except NameError:
         app_settings=loadAppSettings()
 
-    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["PROJECTPATH"]))
-    run('cd {path}; ln -s releases/{release} releases/current'.format(path=app_settings["PROJECTPATH"],
+    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
+    run('cd {path}; ln -s {release} releases/current'.format(path=app_settings["PROJECTPATH"],
                                                                       release=release))
     
 
@@ -656,7 +656,7 @@ def upload_tar_from_local(release=None):
     
     run('mkdir -p {path}/releases/{release}'.format(path=app_settings["PROJECTPATH"],release=release))
     put('{release}.tar.bz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
-    run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
+    run('cd {path}/releases/{release} && tar xjf ../../packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
     sudo('rm {path}/packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
     #local('rm {release}.tar.bz'.format(release=release))
 
