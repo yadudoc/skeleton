@@ -653,7 +653,7 @@ def collect():
     #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
     #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
     local('python ./{{project_name}}/manage.py collectstatic --noinput ')
-    local('tar -czf  {release}.tar.gz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
+    local('tar -cjf  {release}.tar.bz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
     return release
 
 def symlink_current_release(release):
@@ -674,10 +674,8 @@ def upload_tar_from_local(release=None):
     if release is None:
         release = collect()
     
-    #local('git archive --format=tar master | gzip > {release}.tar.gz'.format(release=release))
-    # local('tar -czf  {release}.tar.gz --exclude=.git --exclude=expacore/media *'.format(release=release))
     run('mkdir -p {path}/releases/{release}'.format(path=app_settings[PROJECTPATH],release=release))
-    put('{release}.tar.gz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
-    run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.gz'.format(path=app_settings["PROJECTPATH"],release=release))
-    sudo('rm {path}/packages/{release}.tar.gz'.format(path=app_settings["PROJECTPATH"],release=release))
-    #local('rm {release}.tar.gz'.format(release=release))
+    put('{release}.tar.bz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
+    run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
+    sudo('rm {path}/packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
+    #local('rm {release}.tar.bz'.format(release=release))
