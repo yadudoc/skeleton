@@ -259,19 +259,7 @@ def create_instance(name,
     print(_green("Public dns: %s" % instance.public_dns_name))
 
     if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-        ssh_slug = """
-        Host {name}
-        HostName {dns}
-        Port 22
-        User ubuntu
-        IdentityFile {key_file_path}
-        ForwardAgent yes
-        """.format(name=name, dns=instance.public_dns_name, key_file_path=os.path.join(os.path.expanduser(key_dir),
-            key_name + key_extension))
-
-        ssh_config = open(os.path.expanduser("~/.ssh/config"), "a")
-        ssh_config.write("\n{}\n".format(ssh_slug))
-        ssh_config.close()
+        addToSshConfig(name,instance.public_dns_name)
 
     if not os.path.isdir("fab_hosts"):
         os.mkdir('fab_hosts')
@@ -374,19 +362,7 @@ def getec2instances():
                 fabHostFile.write(taggedHost[0])
             print taggedHost[0]
             if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-                ssh_slug = """
-                Host {name}
-                HostName {dns}
-                Port 22
-                User ubuntu
-                IdentityFile {key_file_path}
-                ForwardAgent yes
-                """.format(name=taggedHost[1], dns=taggedHost[0], key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + "pem"))
-                with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
-                    ssh_config.seek(0)
-                    if not taggedHost[0] in ssh_config.read():                    
-                        ssh_config.seek(0,2)
-                        ssh_config.write("\n{}\n".format(ssh_slug))
+                addToSshConfig(taggedHost[1],taggedHost[0])
 
 @task
 def getrdsinstances():
@@ -679,3 +655,27 @@ def upload_tar_from_local(release=None):
     run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
     sudo('rm {path}/packages/{release}.tar.bz'.format(path=app_settings["PROJECTPATH"],release=release))
     #local('rm {release}.tar.bz'.format(release=release))
+
+def addToSshConfig(name,dns):
+    """
+    Add provided hostname and dns to ssh_config with config template below
+    """
+
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
+    ssh_slug = """
+    Host {name}
+    HostName {dns}
+    Port 22
+    User ubuntu
+    IdentityFile {key_file_path}
+    ForwardAgent yes
+    """.format(name, dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + "pem"))
+    with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
+        ssh_config.seek(0)
+        if not taggedHost[0] in ssh_config.read():
+            ssh_config.seek(0,2)
+            ssh_config.write("\n{}\n".format(ssh_slug))
