@@ -448,31 +448,36 @@ def initapp(name):
     except NameError:
         app_settings=loadAppSettings()
 
+    release = collect()
+
     print(_green("--DEPLOYING {}--".format(name)))
     f = open("fab_hosts/{}.txt".format(name))
     env.host_string = "ubuntu@{}".format(f.readline().strip())
-    sudo("mkdir -p {path} && cd {path} && mkdir -p releases/init shared packages && virtualenv --distribute .".format(path=app_settings["PROJECTPATH"]))
+    sudo("mkdir -p {path} && cd {path} && mkdir -p releases/{release} shared packages && virtualenv --distribute .".format(path=app_settings["PROJECTPATH"],
+                                                                                                                           release=release))
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         sudo("chown -R ubuntu:ubuntu .")
         sudo('pip install django')
-        put('./{app_name}'.format(app_name=app_settings["APP_NAME"]), './releases/init/')
-        run('sed -i -e "s:settings\.local:settings\.production:g" releases/init/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"]))
+
+        upload_tar_from_local(release)
+        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],
+                                                                                                                  release=release))
         if app_settings["DOMAIN_NAME"]=='':
             app_settings["DOMAIN_NAME"] = raw_input("What is the HTTP_HOST for this project? (ex: expacore.com) ")
             saveAppSettings(app_settings)
-
         with settings(hide('running', 'stdout'), warn_only=True):
-            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/init/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
+            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
                                                                                                                                                                                                                               dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                                                                                               dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                                                                                               dbhost=app_settings["DATABASE_HOST"],
                                                                                                                                                                                                                               dbport=app_settings["DATABASE_PORT"],
                                                                                                                                                                                                                               djangosecretkey=app_settings["DJANGOSECRETKEY"],
                                                                                                                                                                                                                               domain_name=app_settings["DOMAIN_NAME"],
+                                                                                                                                                                                                                              release=release,
                                                                                                                                                                                                                               app_name=app_settings["APP_NAME"]))
-        run("cd ./releases && ln -s init current")
-        install_requirements()
+        symlink_current_release(release)   
+        install_requirements(release)
         migrate()
         install_web()
         start_webservers()
@@ -526,7 +531,7 @@ def install_package(name):
     with settings(hide('running', 'stdout'), warn_only=True):
         print _yellow('Installing package %s... ' % name),
         sudo('apt-get -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
+        print _green('[DONE]')™
 
 def update_apt():
     """ run apt-get update """
@@ -543,9 +548,7 @@ def install_requirements(release=None):
     except NameError:
         app_settings=loadAppSettings()
 
-    try:
-        release
-    except NameError:
+    if release is None:
         release = 'current'
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
@@ -553,9 +556,8 @@ def install_requirements(release=None):
         run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
         
-        run('./bin/pip install -r ./releases/{release}/{app_name}/requirements/{requirements_file}.txt'.format(release=release,
-                                                                                                                requirements_file=app_settings["REQUIREMENTSFILE"],
-                                                                                                                app_name=app_settings["APP_NAME"]))
+        run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
+                                                                                                    requirements_file=app_settings["REQUIREMENTSFILE"]))
 
 def migrate():
     "Update the database"
@@ -638,3 +640,44 @@ def loadAwsCfg():
     except Exception as e:
         print "aws.cfg not found. %s" %e
         sys.exit()
+
+def collect():
+    """
+    Create deployable tarball.
+
+    return: release number as a string
+    """
+    release = time.strftime('%Y%m%d%H%M%S')
+    local("find . -name '*.pyc' -delete", capture=False)
+
+    #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
+    #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
+    local('python ./{{project_name}}/manage.py collectstatic --noinput ')
+    local('tar -czf  {release}.tar.gz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
+    return release
+
+def symlink_current_release(release):
+    "Symlink our current release"
+
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadAppSettings()
+
+    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["PROJECTPATH"]))
+    run('cd {path}; ln -s releases/{release} releases/current'.format(path=app_settings["PROJECTPATH"],
+                                                                      release=release))
+    
+
+def upload_tar_from_local(release=None):
+    "Create an archive from the current Git master branch and upload it"
+    if release is None:
+        release = collect()
+    
+    #local('git archive --format=tar master | gzip > {release}.tar.gz'.format(release=release))
+    # local('tar -czf  {release}.tar.gz --exclude=.git --exclude=expacore/media *'.format(release=release))
+    run('mkdir -p {path}/releases/{release}'.format(path=app_settings[PROJECTPATH],release=release))
+    put('{release}.tar.gz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
+    run('cd {path}/releases/{release} && tar zxf ../../packages/{release}.tar.gz'.format(path=app_settings["PROJECTPATH"],release=release))
+    sudo('rm {path}/packages/{release}.tar.gz'.format(path=app_settings["PROJECTPATH"],release=release))
+    #local('rm {release}.tar.gz'.format(release=release))
