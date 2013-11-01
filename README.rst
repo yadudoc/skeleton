@@ -14,7 +14,7 @@ To use this project follow these steps:
 #. Use Django to start up your app
 #. (optional) use fab to spin up AWS instances
 
-*note: these instructions show creation of a project called "test_me".  You
+*note: these instructions show creation of a project called "testme".  You
 should replace this name with the actual name of your project.*
 
 Working Environment
@@ -30,8 +30,8 @@ Virtualenv Only
 First, make sure you are using virtualenv (http://www.virtualenv.org). Once
 that's installed, create your virtualenv::
 
-    $ virtualenv test_me
-    $ cd test_me
+    $ virtualenv testme
+    $ cd testme
     $ source bin/activate
 
 Installing Django
@@ -44,10 +44,10 @@ To install Django in the new virtual environment, run the following command::
 Creating your project
 =====================
 
-To create a new Django project called '**test_me**' using
+To create a new Django project called '**testme**' using
 django-twoscoops-project, run the following command::
 
-    $ django-admin.py startproject -v3 --template=https://github.com/expa/expa-deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab test_me
+    $ django-admin.py startproject -v3 --template=https://github.com/expa/deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
 
 Vagrant + VirtualBox
 ====================
@@ -56,17 +56,17 @@ Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://
 
     $ vagrant plugin install vagrant-fabric
     $ vagrant plugin install vagrant-vbguest
-    $ cd test_me
+    $ cd testme
     $ vagrant up
 
 Startup your app
 ====================
-To start the **test_me** app, use vagrant to enter the VM and django to start the server::
+To start the **testme** app, use vagrant to enter the VM and django to start the server::
 
     $ vagrant ssh
-    $ cd /mnt/ym/test_me
+    $ cd /mnt/ym/testme
     $ source bin/activate
-    $ python ./releases/current/test_me/manage.py runserver 0.0.0.0:8000
+    $ python ./releases/current/testme/manage.py runserver 0.0.0.0:8000
 
 Acknowledgements
 ================
