@@ -555,11 +555,11 @@ def install_web(app_name='app'):
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
     install_package('nginx')
-    if os.path.exists('./keys/{app_name}.key'.format(app_name=app_settings["APP_NAME"])) and os.path.exists('./keys/{app_name}.crt'.format(app_name=app_settings["APP_NAME"])):
-        put('./keys/{app_name}.key', '/etc/ssl/private/'.format(app_name=app_settings["APP_NAME"]), use_sudo=True)
-        put('./keys/{app_name}.crt', '/etc/ssl/certs/'.format(app_name=app_settings["APP_NAME"]), use_sudo=True)
-        sudo('chown 700 /etc/ssl/private/{app_name}.key'.format(app_name=app_settings["APP_NAME"]))
-        sudo('chown 644 /etc/ssl/certs/{app_name}.crt'.format(app_name=app_settings["APP_NAME"]))
+    if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
+        put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
+        put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
+        sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
+        sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
 
     sudo('pip install uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
