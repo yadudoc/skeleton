@@ -101,7 +101,7 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name):
+def create_rds(name,rdsType='app'):
     """
     Launch an RDS instance with name provided
 
@@ -110,7 +110,7 @@ def create_rds(name):
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadAppSettings(rdsType)
 
     try:
         aws_cfg
@@ -167,7 +167,7 @@ def create_rds(name):
 
 
 @task
-def create_instance(name, 
+def create_ec2(name, 
                     key_extension='.pem',
                     cidr='0.0.0.0/0',
                     tag=None,
@@ -259,7 +259,7 @@ def create_instance(name,
     print(_green("Public dns: %s" % instance.public_dns_name))
 
     if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-        addToSshConfig(name,instance.public_dns_name)
+        addToSshConfig(name=name,dns=instance.public_dns_name)
 
     if not os.path.isdir("fab_hosts"):
         os.mkdir('fab_hosts')
@@ -270,7 +270,7 @@ def create_instance(name,
 
 
 @task
-def terminate_ec2_instance(name):
+def terminate_ec2(name):
     """
     Terminates all servers with the given name
     """
@@ -297,7 +297,7 @@ def terminate_ec2_instance(name):
                 print(_yellow("Terminated"))
 
 @task
-def terminate_rds_instance(name):
+def terminate_rds(name):
     """
     Terminates all rds instances with the given name
     """
@@ -351,7 +351,7 @@ def getec2instances():
         taggedHosts.extend([[i.public_dns_name, i.tags['Name'],] for i in host.instances])
         taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
     taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
- 
+    
     if not any(taggedHosts):
         print "no hosts found"
     else:
@@ -362,7 +362,7 @@ def getec2instances():
                 fabHostFile.write(taggedHost[0])
             print taggedHost[0]
             if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-                addToSshConfig(taggedHost[1],taggedHost[0])
+                addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
 
 @task
 def getrdsinstances():
@@ -439,19 +439,17 @@ def initapp(name):
                                                                                                                   release=release))
         if app_settings["DOMAIN_NAME"]=='':
             app_settings["DOMAIN_NAME"] = raw_input("What is the HTTP_HOST for this project? (ex: expacore.com) ")
-            saveAppSettings(app_settings)
+            saveAppSettings(app_settings,'settings.json')
         with settings(hide('running', 'stdout'), warn_only=True):
-            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],
-                                                                                                                                                                                                                              dbuser=app_settings["DATABASE_USER"],
-                                                                                                                                                                                                                              dbpass=app_settings["DATABASE_PASS"],
-                                                                                                                                                                                                                              dbhost=app_settings["DATABASE_HOST"],
-                                                                                                                                                                                                                              dbport=app_settings["DATABASE_PORT"],
-                                                                                                                                                                                                                              djangosecretkey=app_settings["DJANGOSECRETKEY"],
-                                                                                                                                                                                                                              domain_name=app_settings["DOMAIN_NAME"],
-                                                                                                                                                                                                                              release=release,
-                                                                                                                                                                                                                              app_name=app_settings["APP_NAME"]))
-        symlink_current_release(release)   
-        install_requirements(release)
+            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
+            -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
+            -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
+                                                                                                                dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                                                                domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"]))
+
+        symlink_current_release(release)
+        install_requirements(release,'{app_name}'.format(app_settings["APP_NAME"]))
         migrate()
         install_web()
         start_webservers()
@@ -462,14 +460,48 @@ def deploycore(name):
     Deploy expa core module to instance with name alias
     """
     setHostFromName(name)
+    try:
+        core_settings
+    except NameError:
+        core_settings=loadAppSettings(settingsType='core')
 
+    release = time.strftime('%Y%m%d%H%M%S')
+    rootpath = '{}/expa_core'.format(core_settings["INSTALLROOT"])   
+    deploypath = rootpath + '/releases/' + release    
+
+    print(_green("--DEPLOYING expa core module to {}--".format(name)))
+    sudo('[ -d {path} ] || mkdir -p {path} ; cd {path} ; git clone https://github.com/expa/core.git .'.format(path=deploypath))
+    sudo('chown -R ubuntu:ubuntu {}'.format(rootpath))
+    with cd('{}'.format(rootpath)):
+        run('virtualenv --distribute .')
+        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name='expa_core',release=release))
+        with settings(hide('running', 'stdout'), warn_only=True):
+            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
+            -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
+            -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=core_settings["DATABASE_NAME"],dbuser=core_settings["DATABASE_USER"],
+                                                                                                                dbpass=core_settings["DATABASE_PASS"],dbhost=core_settings["DATABASE_HOST"],
+                                                                                                                dbport=core_settings["DATABASE_PORT"],djangosecretkey=core_settings["DJANGOSECRETKEY"],
+                                                                                                                domain_name=core_settings["DOMAIN_NAME"],release=release,app_name='expa_core'))
+
+
+    symlink_current_release(release=release,app_name='expa_core')
+    install_requirements(app_name='expa_core')
+    migrate(app_name='expa_core')
+
+@task
+def deployapp(name):
+    """
+    Deploy local app
+    """
     try:
         app_settings
     except NameError:
         app_settings=loadAppSettings()
 
-    sudo('[ -d /mnt/ym ] || mkdir /mnt/ym ; cd /mnt/ym ; git clone https://github.com/expa/core.git')
-    sudo('chown -R ubuntu:ubuntu /mnt/ym/core')
+    release = collect()
+
+    print(_green("--DEPLOYING {}--".format(name)))
+    setHostFromName(name)
 
 @task
 def restart(name):
@@ -477,7 +509,7 @@ def restart(name):
     Reload nginx/uwsgi
     """
     setHostFromName(name)
-    
+
     with settings(warn_only=True):
         sudo("/etc/init.d/uwsgi restart")
         sudo('/etc/init.d/nginx reload')
@@ -531,7 +563,7 @@ def update_apt():
         sudo('apt-get update')
         print _green('[DONE]')
 
-def install_requirements(release=None):
+def install_requirements(release=None,app_name=None):
     "Install the required packages from the requirements file using pip"
     # NOTE ... django requires a global install for some reason
     try:
@@ -542,15 +574,15 @@ def install_requirements(release=None):
     if release is None:
         release = 'current'
 
-    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
+    with cd('{path}'.format(path=app_settings["INSTALLROOT"] + "/" + app_name)):
         # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
         run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
         
-        run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
-                                                                                                    requirements_file=app_settings["REQUIREMENTSFILE"]))
+        run('./bin/pip install -r ./releases/{release}/requirements.txt'.format(release=release,
+                                                                                requirements_file=app_settings["REQUIREMENTSFILE"]))
 
-def migrate():
+def migrate(app_name):
     "Update the database"
 
     try:
@@ -558,8 +590,8 @@ def migrate():
     except NameError:
         app_settings=loadAppSettings()
 
-    with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"],
-                                                            app_name=app_settings["APP_NAME"])):
+    with cd('{installroot}/{app_name}/releases/current/{app_name}'.format(installroot=app_settings["INSTALLROOT"],
+                                                                          app_name=app_name)):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
             run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
@@ -594,32 +626,49 @@ def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
 
-def saveAppSettings(appSettingsJson):
-    with open("settings.json", "w") as settingsFile:
+def saveAppSettings(appSettingsJson,settingsFile):
+    with open(settingsFile, "w") as settingsFile:
         settingsFile.write(json.dumps(appSettingsJson))
 
-def loadAppSettings():
+def loadAppSettings(settingsType='app',settingsFile='settings.json'):
     try:
-        with open("settings.json", "r") as settingsFile:
+        with open(settingsFile, "r") as settingsFile:
             app_settings = json.load(settingsFile)
     except Exception as e:
-        app_settings = generateDefaultAppSettings()
-        saveAppSettings(app_settings)
+        app_settings = generateDefaultAppSettings(settingsType)
+        saveAppSettings(app_settings,settingsFile)
     return app_settings
 
-def generateDefaultAppSettings():
-    app_settings = {"DATABASE_USER": "{{project_name}}",
-                    # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                    "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                    "APP_NAME": "{{project_name}}",
-                    "DATABASE_NAME": "{{project_name}}",
-                    "DATABASE_HOST": "",
-                    "DATABASE_PORT": "",
-                    "PROJECTPATH" : "/mnt/ym/{{project_name}}",
-                    "REQUIREMENTSFILE" : "production",
-                    "DOMAIN_NAME" : "",
-                    "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '!@#$%^&*()') for ii in range(64))
-                    }
+def generateDefaultAppSettings(settingsType=None):
+    if settingsType == 'core':
+        app_settings = {"DATABASE_USER": "expa_core",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "expa_core",
+                        "DATABASE_NAME": "expa_core",
+                        "DATABASE_HOST": "",
+                        "DATABASE_PORT": "",
+                        "PROJECTPATH" : "/mnt/ym/expa_core",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        }
+
+    else:
+        app_settings = {"DATABASE_USER": "{{project_name}}",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "{{project_name}}",
+                        "DATABASE_NAME": "{{project_name}}",
+                        "DATABASE_HOST": "",
+                        "DATABASE_PORT": "",
+                        "PROJECTPATH" : "/mnt/ym/{{project_name}}",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        }
     return app_settings
 
 def loadAwsCfg():
@@ -647,17 +696,17 @@ def collect():
     local('tar -cjf  {release}.tar.bz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
     return release
 
-def symlink_current_release(release):
+def symlink_current_release(release,app_name):
     "Symlink our current release"
     try:
         app_settings
     except NameError:
         app_settings=loadAppSettings()
 
-    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
-    run('cd {path}; ln -s {release} releases/current'.format(path=app_settings["PROJECTPATH"],
-                                                                      release=release))
-    
+    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["INSTALLROOT"] + '/' + app_name), warn_only=True)
+    run('cd {path}; ln -s {release} releases/current'.format(path=app_settings["INSTALLROOT"] + '/' + app_name,
+                                                             release=release))
+
 
 def upload_tar_from_local(release=None):        
     "Create an archive from the current Git master branch and upload it"
@@ -691,10 +740,10 @@ def addToSshConfig(name,dns):
     User ubuntu
     IdentityFile {key_file_path}
     ForwardAgent yes
-    """.format(name, dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + "pem"))
+    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + ".pem"))
     with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
         ssh_config.seek(0)
-        if not taggedHost[0] in ssh_config.read():
+        if not dns in ssh_config.read():
             ssh_config.seek(0,2)
             ssh_config.write("\n{}\n".format(ssh_slug))
 
