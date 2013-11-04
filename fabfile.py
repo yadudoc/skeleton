@@ -110,7 +110,7 @@ def create_rds(name,rdsType='app'):
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings(rdsType)
+        app_settings=loadSettings(rdsType)
 
     try:
         aws_cfg
@@ -164,7 +164,6 @@ def create_rds(name,rdsType='app'):
         settingsFile.write(json.dumps(app_settings))
 
     return str(db.endpoint)
-
 
 @task
 def create_ec2(name, 
@@ -408,38 +407,33 @@ def bootstrap(name):
     install_package('python-mysqldb')
 
 @task
-def initapp(name):
+def deployapp(name,app_name='app'):
     """
-    Bootstrap the specified server. Install and setup the local project path.
-
-    :param name: The name of the node to be bootstrapped
-    :param no_install: Optionally skip the Chef installation
-    since it takes time and is unneccesary after the first run
-    :return:
+    Deploy app_name module to instance with name alias
     """
-    
+    setHostFromName(name)
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings(app_name)
 
-    release = collect()
+    if app_name == 'expa_core':
+        release = time.strftime('%Y%m%d%H%M%S')
+    else:
+        collect()
 
-    print(_green("--DEPLOYING {}--".format(name)))
-    setHostFromName(name)
-    sudo("mkdir -p {path} && cd {path} && mkdir -p releases/{release} shared packages && virtualenv --distribute .".format(path=app_settings["PROJECTPATH"],
-                                                                                                                           release=release))
+    deploypath = app_settings["PROJECTPATH"] + '/releases/' + release    
 
-    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
-        sudo("chown -R ubuntu:ubuntu .")
-        sudo('pip install django')
+    print(_green("--DEPLOYING {app_name} to {name}--".format(name=name,app_name=app_type)))
+    if app_name == 'expa_core':
+        sudo('[ -d {path} ] || mkdir -p {path} ; cd {path} ; git clone https://github.com/expa/core.git .'.format(path=deploypath))
+    else:
+        upload_tar_from_local(release,app_name)
 
-        upload_tar_from_local(release)
-        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],
-                                                                                                                  release=release))
-        if app_settings["DOMAIN_NAME"]=='':
-            app_settings["DOMAIN_NAME"] = raw_input("What is the HTTP_HOST for this project? (ex: expacore.com) ")
-            saveAppSettings(app_settings,'settings.json')
+    sudo('chown -R ubuntu:ubuntu {}'.format(rootpath))
+    with cd('{}'.format(app_settings["PROJECTPATH"])):
+        run('virtualenv --distribute .')
+        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],release=release))
         with settings(hide('running', 'stdout'), warn_only=True):
             run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
             -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
@@ -448,60 +442,12 @@ def initapp(name):
                                                                                                                 dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
                                                                                                                 domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"]))
 
-        symlink_current_release(release)
-        install_requirements(release,'{app_name}'.format(app_settings["APP_NAME"]))
-        migrate()
-        install_web()
-        start_webservers()
 
-@task
-def deploycore(name):
-    """
-    Deploy expa core module to instance with name alias
-    """
-    setHostFromName(name)
-    try:
-        core_settings
-    except NameError:
-        core_settings=loadAppSettings(settingsType='core')
-
-    release = time.strftime('%Y%m%d%H%M%S')
-    rootpath = '{}/expa_core'.format(core_settings["INSTALLROOT"])   
-    deploypath = rootpath + '/releases/' + release    
-
-    print(_green("--DEPLOYING expa core module to {}--".format(name)))
-    sudo('[ -d {path} ] || mkdir -p {path} ; cd {path} ; git clone https://github.com/expa/core.git .'.format(path=deploypath))
-    sudo('chown -R ubuntu:ubuntu {}'.format(rootpath))
-    with cd('{}'.format(rootpath)):
-        run('virtualenv --distribute .')
-        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name='expa_core',release=release))
-        with settings(hide('running', 'stdout'), warn_only=True):
-            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
-            -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
-            -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=core_settings["DATABASE_NAME"],dbuser=core_settings["DATABASE_USER"],
-                                                                                                                dbpass=core_settings["DATABASE_PASS"],dbhost=core_settings["DATABASE_HOST"],
-                                                                                                                dbport=core_settings["DATABASE_PORT"],djangosecretkey=core_settings["DJANGOSECRETKEY"],
-                                                                                                                domain_name=core_settings["DOMAIN_NAME"],release=release,app_name='expa_core'))
-
-
-    symlink_current_release(release=release,app_name='expa_core')
-    install_requirements(app_name='expa_core')
-    migrate(app_name='expa_core')
-
-@task
-def deployapp(name):
-    """
-    Deploy local app
-    """
-    try:
-        app_settings
-    except NameError:
-        app_settings=loadAppSettings()
-
-    release = collect()
-
-    print(_green("--DEPLOYING {}--".format(name)))
-    setHostFromName(name)
+    symlink_current_release(release=release,app_name=app_settings["APP_NAME"])
+    install_requirements(app_name=app_settings["APP_NAME"])
+    migrate(app_name=app_settings["APP_NAME"])
+    install_web(app_name=app_settings["APP_NAME"])
+    restart(name)
 
 @task
 def restart(name):
@@ -569,7 +515,7 @@ def install_requirements(release=None,app_name=None):
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings()
 
     if release is None:
         release = 'current'
@@ -588,10 +534,9 @@ def migrate(app_name):
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings(app_name)
 
-    with cd('{installroot}/{app_name}/releases/current/{app_name}'.format(installroot=app_settings["INSTALLROOT"],
-                                                                          app_name=app_name)):
+    with cd('{path}/releases/current/{app_name}'.format(installroot=app_settings["PROJECTPATH"],app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
             run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
@@ -599,48 +544,51 @@ def migrate(app_name):
             run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
             #run('../../../bin/python manage.py loaddata app/fixtures/')
 
-def install_web():
+def install_web(app_name='app'):
     "Install web serving components"
 
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings(app_name)
 
-    sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]))
+    sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
     install_package('nginx')
     if os.path.exists('./keys/{app_name}.key'.format(app_name=app_settings["APP_NAME"])) and os.path.exists('./keys/{app_name}.crt'.format(app_name=app_settings["APP_NAME"])):
-        put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
-        put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
-        sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
-        sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
+        put('./keys/{app_name}.key', '/etc/ssl/private/'.format(app_name=app_settings["APP_NAME"]), use_sudo=True)
+        put('./keys/{app_name}.crt', '/etc/ssl/certs/'.format(app_name=app_settings["APP_NAME"]), use_sudo=True)
+        sudo('chown 700 /etc/ssl/private/{app_name}.key'.format(app_name=app_settings["APP_NAME"]))
+        sudo('chown 644 /etc/ssl/certs/{app_name}.crt'.format(app_name=app_settings["APP_NAME"]))
 
     sudo('pip install uwsgi')
-    put('./config/uwsgi', '/etc/init.d/uwsgi', use_sudo=True)
-    put('./config/uwsgi.xml', '/etc/uwsgi.xml', use_sudo=True)
-    put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
+    with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
+        sudo('cp ./config/uwsgi /etc/init.d/uwsgi')
+        sudo('cp ./config/uwsgi.xml /etc/uwsgi.xml')
+        sudo('cp ./config/nginx.conf /etc/nginx/nginx.conf')
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
 
-def saveAppSettings(appSettingsJson,settingsFile):
+def saveSettings(appSettingsJson,settingsFile):
     with open(settingsFile, "w") as settingsFile:
-        settingsFile.write(json.dumps(appSettingsJson))
+        settingsFile.write(json.dumps(appSettingsJson,indent=4,separators=(',', ': '),sort_keys=True))
 
-def loadAppSettings(settingsType='app',settingsFile='settings.json'):
+def loadSettings(app_name='app'):
+    settingsFile = app_name + '_settings.json'
+    
     try:
         with open(settingsFile, "r") as settingsFile:
-            app_settings = json.load(settingsFile)
+            settings = json.load(settingsFile)
     except Exception as e:
-        app_settings = generateDefaultAppSettings(settingsType)
-        saveAppSettings(app_settings,settingsFile)
-    return app_settings
+        settings = generateDefaultSettings(app_name)
+        saveSettings(settings,settingsFile)
+    return settings
 
-def generateDefaultAppSettings(settingsType=None):
-    if settingsType == 'core':
+def generateDefaultSettings(settingsType=None):
+    if settingsType == 'expa_core':
         app_settings = {"DATABASE_USER": "expa_core",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
@@ -701,19 +649,17 @@ def symlink_current_release(release,app_name):
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings(app_name)
 
-    run('cd {path}; rm releases/previous; mv releases/current releases/previous;'.format(path=app_settings["INSTALLROOT"] + '/' + app_name), warn_only=True)
-    run('cd {path}; ln -s {release} releases/current'.format(path=app_settings["INSTALLROOT"] + '/' + app_name,
-                                                             release=release))
+    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
+        run('rm releases/previous; mv releases/current releases/previous; ln -s {release} releases/current'.format(release=release))
 
-
-def upload_tar_from_local(release=None):        
+def upload_tar_from_local(release=None,app_name='app'):        
     "Create an archive from the current Git master branch and upload it"
     try:
         app_settings
     except NameError:
-        app_settings=loadAppSettings()
+        app_settings=loadSettings(app_name)
 
     if release is None:
         release = collect()
