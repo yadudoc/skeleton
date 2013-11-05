@@ -220,7 +220,7 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     group_name=aws_cfg["group_name"]
     ssh_port=aws_cfg["ssh_port"]
 
-    print(_green("Started creating {}...".format(name)))
+    print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name,type=instance_type,ami=ami)))
     print(_yellow("...Creating EC2 instance..."))
 
     conn = connect_to_ec2()
@@ -337,11 +337,11 @@ def getec2instances():
     # Get the public CNAMES for those instances.
     taggedHosts = []
     for host in conn.get_all_instances(instance_ids):
-        taggedHosts.extend([[i.public_dns_name, i.tags['Name'],] for i in host.instances])
+        taggedHosts.extend([[i.public_dns_name, i.tags['Name'],i.instance_type] for i in host.instances if i.state=='running'])
         taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
     taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
     
-    if not any(taggedHosts):
+    if not any(taggedHosts)
         print "no hosts found"
     else:
         if not os.path.isdir("fab_hosts"):
@@ -349,9 +349,12 @@ def getec2instances():
         for taggedHost in taggedHosts:
             with open("fab_hosts/{}.txt".format(taggedHost[1]), "w") as fabHostFile:
                 fabHostFile.write(taggedHost[0])
-            print taggedHost[0]
+            print taggedHost[1] + " " + taggedHost[0]
+
+        if os.isatty(sys.stdout.fileno()):
             if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-                addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
+                for taggedHost in taggedHosts:
+                    addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
 
 @task
 def getrdsinstances():
