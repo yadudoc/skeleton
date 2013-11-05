@@ -165,14 +165,7 @@ def create_rds(name,rdsType='app'):
     return str(db.endpoint)
 
 @task
-def create_ec2(name, 
-                    key_extension='.pem',
-                    cidr='0.0.0.0/0',
-                    tag=None,
-                    user_data=None,
-                    cmd_shell=True,
-                    login_user='ubuntu',
-                    ssh_passwd=None):
+def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=None,cmd_shell=True,login_user='ubuntu',ssh_passwd=None):
 
     """
     Launch an instance and wait for it to start running.
@@ -202,9 +195,8 @@ def create_ec2(name,
     tag        A name that will be used to tag the instance so we can
                easily find it later.
 
-    user_data  Data that will be passed to the newly started
-               instance at launch and will be accessible via
-               the metadata service running at http://169.254.169.254.
+    user_data  Data that will be passed to the newly started instance at launch 
+               and will be accessible via the metadata service running at http://169.254.169.254.
 
     cmd_shell  If true, a boto CmdShell object will be created and returned.
                This allows programmatic SSH access to the new instance.
@@ -265,7 +257,6 @@ def create_ec2(name,
     f.write(instance.public_dns_name)
     f.close()
     return instance.public_dns_name
-
 
 @task
 def terminate_ec2(name):
@@ -460,9 +451,9 @@ def restart(name):
     setHostFromName(name)
 
     with settings(warn_only=True):
-        sudo("/etc/init.d/uwsgi restart")
-        sudo('/etc/init.d/nginx reload')
-
+        sudo('if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi')
+        sudo('if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi')
+        
 #----------HELPER FUNCTIONS-----------
 
 @contextmanager
@@ -699,4 +690,3 @@ def addToSshConfig(name,dns):
 def setHostFromName(name):
     f = open("fab_hosts/{}.txt".format(name))
     env.host_string = "ubuntu@{}".format(f.readline().strip())
-
