@@ -323,7 +323,7 @@ def getec2instances():
 
     # Get a list of instance IDs for the ELB.
     instances = []
-    conn = boto.connect_elb()
+    conn = connect_to_elb()
     for elb in conn.get_all_load_balancers():
         instances.extend(elb.instances)
  
@@ -466,6 +466,19 @@ def restart(name):
 def _virtualenv():
     with prefix(env.activate):
         yield
+
+def connect_to_elb():
+    """
+    return an ec2 connection given credentials imported from config
+    """
+
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
+    return boto.connect_elb(aws_access_key_id=aws_cfg["aws_access_key_id"],
+                            aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
 def connect_to_ec2():
     """
@@ -654,7 +667,7 @@ def symlink_current_release(release,app_type):
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('rm releases/previous; mv releases/current releases/previous; ln -s {release} releases/current'.format(release=release))
 
-def upload_tar_from_local(release=None,app_type='app'):        
+def upload_tar_from_local(release=None,app_type='app'):
     "Create an archive from the current Git master branch and upload it"
     try:
         app_settings
