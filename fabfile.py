@@ -367,13 +367,15 @@ def getrdsinstances():
     # Get the public CNAMES for all instances.
     rdsInstances = []
     for rdsInstance in conn.get_all_dbinstances():
-        rdsInstances.extend([i.public_dns_name for i in rdsInstance.instances])
+        if rdsInstance.status=='available':
+            rdsInstances.extend([rdsInstance])
     rdsInstances.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
  
     if not any(rdsInstances):
         print "no rds instances found"
     else:
-        print rdsInstances
+        for rdsInstance in rdsInstances:
+            print rdsInstance.id
     return rdsInstances
 
 @task
