@@ -8,7 +8,7 @@ To use this project follow these steps:
 
 #. Create your working environment
 #. Install Django
-#. Create the new project using the django-two-scoops template
+#. Create the new project using the skeleton template
 #. Use the Django admin to create the project
 #. Use Vagrant to start up your dev environment
 #. Use Django to start up your app
@@ -47,7 +47,7 @@ Creating your project
 To create a new Django project called '**testme**' using
 django-twoscoops-project, run the following command::
 
-    $ django-admin.py startproject -v3 --template=https://github.com/expa/deploy/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
+    $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
 
 Vagrant + VirtualBox
 ====================
