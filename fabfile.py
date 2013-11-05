@@ -279,8 +279,9 @@ def terminate_ec2(name):
                 continue
             else:
                 print instance._state
-            print (instance.id, instance.tags['Name'])
-            if raw_input("terminate? (y/n) ").lower() == "y":
+
+            print instance.state + " instance " + instance.id + " with name tag " + instance.tags['Name'] + " available at " + instance.public_dns_name 
+            if raw_input("shall we terminate? (y/n) ").lower() == "y":
                 print(_yellow("Terminating {}".format(instance.id)))
                 conn.terminate_instances(instance_ids=[instance.id])
                 print(_yellow("Terminated"))
