@@ -5,7 +5,15 @@ key_name: <YOUR EC2 KEY NAME>
 group_name: <YOUR SECURITY GROUP NAME>
 key_dir: <WHERE ARE YOUR KEYS>
 ssh_port: 22
-instance_type: "t1.micro"
-ubuntu_lts_ami: "ami-d0f89fb9"
 rds_storage_size: <RDS STORAGE IN GB>
 rds_instance_size: <RDS INSTANCE SIZE>
+# All AMIs are in US-East
+# micro and EBS: ubuntu/images/ebs/ubuntu-precise-12.04-amd64-server-20131024
+instance_type: "t1.micro"
+ubuntu_lts_ami: "ami-69f5a900"
+# small and instance store: ubuntu/images/ubuntu-precise-12.04-amd64-server-20131024
+#instance_type: "m1.small"
+#ubuntu_lts_ami: "ami-5ffaa636"
+# large and instance store: ubuntu/images/ubuntu-precise-12.04-amd64-server-20131024
+#instance_type: "m1.large"
+#ubuntu_lts_ami: "ami-5ffaa636"
