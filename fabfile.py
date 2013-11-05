@@ -423,7 +423,7 @@ def deployapp(name,app_type='app'):
 
     deploypath = app_settings["PROJECTPATH"] + '/releases/' + release    
 
-    print(_green("--DEPLOYING {app_type} to {name}--".format(name=name,app_type=app_type)))
+    print(_green("--DEPLOYING {app_type} to {name}--".format(name=name,app_type=app_type)))      
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
     sudo('chown -R ubuntu:ubuntu {}'.format(app_settings["INSTALLROOT"]))
     if app_settings["APP_NAME"] == 'expa_core':
@@ -601,7 +601,7 @@ def generateDefaultSettings(settingsType):
                         "DATABASE_PORT": "",
                         "PROJECTPATH" : "/mnt/ym/expa_core",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "",
+                        "DOMAIN_NAME" : "core.{{project_name}}.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
@@ -616,7 +616,7 @@ def generateDefaultSettings(settingsType):
                         "DATABASE_PORT": "",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "",
+                        "DOMAIN_NAME" : "{{project_name}}.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
