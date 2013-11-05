@@ -341,7 +341,7 @@ def getec2instances():
         taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
     taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
     
-    if not any(taggedHosts)
+    if not any(taggedHosts):
         print "no hosts found"
     else:
         if not os.path.isdir("fab_hosts"):
