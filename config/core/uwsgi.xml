@@ -1,0 +1,14 @@
+<uwsgi>
+  <socket>127.0.0.1:3031</socket>
+  <pythonpath>/mnt/ym/expa_core/releases/current/expa_core</pythonpath>
+  <home>/mnt/ym/expa_core</home>
+  <wsgi-file>/mnt/ym/expa_core/releases/current/expa_core/wsgi.py</wsgi-file>
+  <processes>8</processes>
+  <uid>www-data</uid>
+  <gid>www-data</gid>
+  <pidfile>/mnt/ym/expa_core/pid/uwsgi.pid</pidfile>
+  <buffer-size> 32768</buffer-size>
+  <master/>
+  <harakiri>360</harakiri>  
+  
+</uwsgi>

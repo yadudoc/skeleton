@@ -1,0 +1,1 @@
+1 0 * * * cd /mnt/ym/expa_core/releases/current/expa_core && /mnt/ym/expa_core/bin/python /mnt/ym/expa_core/releases/current/expa_core/manage.py run_nightly_tasks >> /var/log/nightly.log 2>&1
