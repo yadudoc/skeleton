@@ -165,7 +165,7 @@ def create_rds(name,rdsType='app'):
     return str(db.endpoint)
 
 @task
-def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=None,cmd_shell=True,login_user='ubuntu',ssh_passwd=None):
+def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=None,cmd_shell=True,login_user='ubuntu',ssh_passwd=None,ami=None):
 
     """
     Launch an instance and wait for it to start running.
@@ -213,7 +213,8 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     except NameError:
         aws_cfg=loadAwsCfg()
 
-    ami=aws_cfg["ubuntu_lts_ami"]
+    if ami is None:
+        ami=aws_cfg["ubuntu_lts_ami"]
     instance_type=aws_cfg["instance_type"]
     key_name=aws_cfg["key_name"]
     key_dir=aws_cfg["key_dir"]
@@ -383,7 +384,7 @@ def getrdsinstances():
     return rdsInstances
 
 @task
-def bootstrap(name):
+def bootstrap(name,app_type='app'):
     """
     Bootstrap the specified server.
 
@@ -393,9 +394,13 @@ def bootstrap(name):
 
     print(_green("--BOOTSTRAPPING {}--".format(name)))
     setHostFromName(name)
-    package_list = [ 'aptitude', 'ntpdate', 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'mysql-client', 'libmysqlclient-dev' ]
+    if app_type == 'blog':
+        package_list = [ 'aptitude', 'ntpdate', 'git-core', 'mysql-client', 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx']
+    else:
+        package_list = [ 'aptitude', 'ntpdate', 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'mysql-client', 'libmysqlclient-dev' ]
 
     update_apt()
+    install_package('language-pack-en')
     for package in package_list:
         install_package(package)
 
@@ -452,14 +457,44 @@ def deployapp(name,app_type='app'):
 @task
 def restart(name):
     """
-    Reload nginx/uwsgi
+    Reload app server/nginx
     """
     setHostFromName(name)
 
     with settings(warn_only=True):
-        sudo('if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi')
-        sudo('if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi')
-        
+        sudo('if [ -x /etc/init.d/php5-fpm ]; then if [ "$( /etc/init.d/php5-fpm status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/php5-fpm start ; else /etc/init.d/php5-fpm reload ; fi ; fi')
+        sudo('if [ -x /etc/init.d/uwsgi ]; then if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi; fi')
+        sudo('if [ -x /etc/init.d/nginx ]; then if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi ; fi')
+
+@task
+def deploywp(name):
+    """
+    Deploy Wordpress on named ec2 instance. Requires create_rds and bootstrap to be called first with the 'blog' app type
+    """
+    setHostFromName(name)
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings('blog')
+
+    sudo('mkdir -p {path} ; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
+    put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog.{{project_name}}.com', use_sudo=True)
+    run('curl https://raw.github.com/wp-cli/wp-cli.github.com/master/installer.sh | bash')
+
+    with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
+        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core download')
+        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core config --dbname={dbname} --dbuser={dbuser} --dbpass={dbpass} --dbhost={dbhost}'.format(dbname=app_settings["DATABASE_NAME"],
+                                                                                                                                                        dbuser=app_settings["DATABASE_USER"],
+                                                                                                                                                        dbpass=app_settings["DATABASE_PASS"],
+                                                                                                                                                        dbhost=app_settings["DATABASE_HOST"]))
+        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{domain_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
+                                                                                                                                                                                                                         domain_name=app_settings["DOMAIN_NAME"],
+                                                                                                                                                                                                                         blog_admin=app_settings["BLOG_ADMIN"],
+                                                                                                                                                                                                                         blog_admin_email=app_settings["BLOG_ADMIN_EMAIL"],
+                                                                                                                                                                                                                         blog_pass=app_settings["BLOG_PASS"]))
+    sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
+    restart(name)
+
 #----------HELPER FUNCTIONS-----------
 
 @contextmanager
@@ -616,6 +651,22 @@ def generateDefaultSettings(settingsType):
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
 
+    elif settingsType == 'blog':
+        app_settings = {"DATABASE_USER": "blog",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "blog",
+                        "DATABASE_NAME": "blog",
+                        "DATABASE_HOST": "",
+                        "DATABASE_PORT": "",
+                        "PROJECTPATH" : "/mnt/ym/blog",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "blog.{{project_name}}.com",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "BLOG_ADMIN" : "{{project_name}}_admin",
+                        "BLOG_ADMIN_EMAIL" : "{{project_name}}_admin@{{project_name}}.com",
+                        "BLOG_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16))
+                        }
     else:
         app_settings = {"DATABASE_USER": "{{project_name}}",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
