@@ -1,0 +1,29 @@
+server {
+    listen   80;
+
+    root /mnt/ym/blog;
+    index index.php index.html index.htm;
+
+    server_name blog.{{project_name}}.com;
+
+    location / {
+            try_files $uri $uri/ /index.html;
+    }
+
+    error_page 404 /404.html;
+
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+          root /usr/share/nginx/www;
+    }
+
+    # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+    location ~ \.php$ {
+            # With php5-fpm:
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            include fastcgi_params;
+
+    }
+
+}
