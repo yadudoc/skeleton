@@ -131,6 +131,8 @@ def create_rds(name,rdsType='app'):
     except conn.ResponseError, e:
         setup_aws_account()
 
+    print(_green("Creating RDS instance {name}...".format(name=name)))
+
     try:
         db = conn.create_dbinstance(id=name, 
                                    allocated_storage=dbStorageSize,
@@ -145,7 +147,7 @@ def create_rds(name,rdsType='app'):
         print name, dbStorageSize, dbInstanceSize, dbUser, dbPassword, dbName, group_name
         return
 
-    print _green('Waiting for rdsInstance to start...')
+    print _yellow('Waiting for rdsInstance to start...')
     status = db.update()
     while status != 'available':
         time.sleep(45)
@@ -249,8 +251,7 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     print(_green("Instance state: %s" % instance.state))
     print(_green("Public dns: %s" % instance.public_dns_name))
 
-    if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-        addToSshConfig(name=name,dns=instance.public_dns_name)
+    addToSshConfig(name=name,dns=instance.public_dns_name)
 
     if not os.path.isdir("fab_hosts"):
         os.mkdir('fab_hosts')
@@ -269,7 +270,7 @@ def terminate_ec2(name):
     except NameError:
         aws_cfg=loadAwsCfg()
 
-    print(_green("Started terminating {}...".format(name)))
+    print(_green("Searching for {}...".format(name)))
 
     conn = connect_to_ec2()
     filters = {"tag:Name": name}
@@ -277,15 +278,13 @@ def terminate_ec2(name):
         for instance in reservation.instances:
             if "terminated" in str(instance._state):
                 print "instance {} is already terminated".format(instance.id)
-                continue
-            else:
-                print instance._state
 
             print instance.state + " instance " + instance.id + " with name tag " + instance.tags['Name'] + " available at " + instance.public_dns_name 
             if raw_input("shall we terminate? (y/n) ").lower() == "y":
                 print(_yellow("Terminating {}".format(instance.id)))
                 conn.terminate_instances(instance_ids=[instance.id])
                 print(_yellow("Terminated"))
+                removeFromSshConfig(instance.public_dns_name)
 
 @task
 def terminate_rds(name):
@@ -353,10 +352,8 @@ def getec2instances():
                 fabHostFile.write(taggedHost[0])
             print taggedHost[1] + " " + taggedHost[0]
 
-        if os.isatty(sys.stdout.fileno()):
-            if raw_input("Add to ssh/config? (y/n) ").lower() == "y":
-                for taggedHost in taggedHosts:
-                    addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
+    for taggedHost in taggedHosts:
+        addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
 
 @task
 def getrdsinstances():
@@ -492,6 +489,7 @@ def deploywp(name):
                                                                                                                                                                                                                          blog_admin=app_settings["BLOG_ADMIN"],
                                                                                                                                                                                                                          blog_admin_email=app_settings["BLOG_ADMIN_EMAIL"],
                                                                                                                                                                                                                          blog_pass=app_settings["BLOG_PASS"]))
+    sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
 
@@ -751,12 +749,40 @@ def addToSshConfig(name,dns):
     IdentityFile {key_file_path}
     ForwardAgent yes
     """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + ".pem"))
-    with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
-        ssh_config.seek(0)
-        if not dns in ssh_config.read():
-            ssh_config.seek(0,2)
-            ssh_config.write("\n{}\n".format(ssh_slug))
+    if os.name == 'posix':
+        try:
+            with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
+                ssh_config.seek(0)
+                if not dns in ssh_config.read():
+                    ssh_config.seek(0,2)
+                    ssh_config.write("\n{}\n".format(ssh_slug))
+        except Exception as e:
+            print e
+            pass
+
+def removeFromSshConfig(dns):
+    """
+    Remove ssh_slug containing provided name and dns from ssh_config
+    """
+    if os.name == 'posix':
+        try:
+            with open(os.path.expanduser("~/.ssh/config"), "r+") as ssh_config:
+                lines = ssh_config.readlines()
+                blockstart = substringIndex(lines, dns)
+                blockend = substringIndex(lines, "ForwardAgent yes", blockstart)
+                del(lines[blockstart-2:blockend+2])
+                ssh_config.seek(0)
+                ssh_config.write(''.join(lines))
+                ssh_config.truncate()
+        except Exception as e:
+            print e
 
 def setHostFromName(name):
     f = open("fab_hosts/{}.txt".format(name))
     env.host_string = "ubuntu@{}".format(f.readline().strip())
+
+def substringIndex(the_list, substring, offset=0):
+    for i, s in enumerate(the_list):
+        if (substring in s) and ( i >= offset):
+            return i
+    return -1
