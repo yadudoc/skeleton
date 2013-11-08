@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 from fabric.operations import put
 from fabric.api import env, local, sudo, run, cd, prefix, task, settings, execute
-from fabric.colors import green as _green, yellow as _yellow, red as _red
+from fabric.colors import green as _green, yellow as _yellow, red as _red, blue as _blue
 from fabric.context_managers import hide, show, lcd
 from config import Config
 
@@ -278,13 +278,12 @@ def terminate_ec2(name):
         for instance in reservation.instances:
             if "terminated" in str(instance._state):
                 print "instance {} is already terminated".format(instance.id)
-
-            print instance.state + " instance " + instance.id + " with name tag " + instance.tags['Name'] + " available at " + instance.public_dns_name 
-            if raw_input("shall we terminate? (y/n) ").lower() == "y":
-                print(_yellow("Terminating {}".format(instance.id)))
-                conn.terminate_instances(instance_ids=[instance.id])
-                print(_yellow("Terminated"))
-                removeFromSshConfig(instance.public_dns_name)
+            else:
+                if raw_input("shall we terminate {name}? (y/n) ".format(name=name)).lower() == "y":
+                    print(_yellow("Terminating {}".format(instance.id)))
+                    conn.terminate_instances(instance_ids=[instance.id])
+                    print(_yellow("Terminated"))
+                    removeFromSshConfig(instance.public_dns_name)
 
 @task
 def terminate_rds(name):
@@ -303,10 +302,7 @@ def terminate_rds(name):
         if "terminated" in str(instance.status):
             print "instance {} is already terminated".format(instance.id)
             continue
-        else:
-            print instance.status
-        print (instance.id)
-        if raw_input("terminate? (y/n) ").lower() == "y":
+        if raw_input("terminate {instance}? (y/n) ".format(instance=instance.id)).lower() == "y":
             print(_yellow("Terminating {}".format(instance.id)))
             conn.delete_dbinstance(id=instance.id, skip_final_snapshot=True)
             print(_yellow("Terminated"))
@@ -388,21 +384,34 @@ def bootstrap(name,app_type='app'):
     :param name: The name of the node to be bootstrapped
     :return:
     """
-
+    
     print(_green("--BOOTSTRAPPING {}--".format(name)))
     setHostFromName(name)
+    package_list = ['language-pack-en', 'aptitude', 'git-core', 'mysql-client', 'ntpdate']
     if app_type == 'blog':
-        package_list = [ 'aptitude', 'ntpdate', 'git-core', 'mysql-client', 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx']
+        package_list.extend([ 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx'])
     else:
-        package_list = [ 'aptitude', 'ntpdate', 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'mysql-client', 'libmysqlclient-dev' ]
+        package_list.extend([ 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'libmysqlclient-dev' ])
 
     update_apt()
-    install_package('language-pack-en')
-    for package in package_list:
-        install_package(package)
+    install_package('debconf-utils')
+    with settings(hide('running', 'stdout')):
+        sudo('add-apt-repository -y ppa:apt-fast/stable')
+        sudo('echo apt-fast apt-fast/aptmanager select apt-get | debconf-set-selections')
+        sudo('echo apt-fast apt-fast/downloadcmd    string  aria2c -c -j ${_MAXNUM} -i ${DLLIST} --connect-timeout=600 --timeout=600 -m0 | debconf-set-selections')
+        sudo('echo apt-fast apt-fast/dlflag boolean false | debconf-set-selections')
+        sudo('echo apt-fast apt-fast/tmpdownloaddir string  /var/cache/apt/archives/apt-fast| debconf-set-selections')
+        sudo('echo apt-fast apt-fast/maxdownloads   string  10| debconf-set-selections')
+        sudo('echo apt-fast apt-fast/downloader select  aria2c| debconf-set-selections')
+        sudo('echo apt-fast apt-fast/tmpdownloadlist    string  /tmp/apt-fast.list| debconf-set-selections')
+        sudo('echo apt-fast apt-fast/aptcache   string  /var/cache/apt/archives| debconf-set-selections')
+    update_apt()
+    install_package('apt-fast')
+    print _blue('Installing packages. please wait...')
+    install_package_fast(' '.join(package_list))
 
     sudo('aptitude -y build-dep python-mysqldb')
-    install_package('python-mysqldb')
+    install_package_fast('python-mysqldb')
 
 @task
 def deployapp(name,app_type='app'):
@@ -429,7 +438,7 @@ def deployapp(name,app_type='app'):
         with cd('{path}'.format(path=deploypath)):
             run('git clone https://github.com/expa/core.git .')
             run('mkdir config')
-            put('./config/core/*', '{}/config/'.format(deploypath), use_glob=True)
+            put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
     else:
         upload_tar_from_local(release,app_type)
 
@@ -439,10 +448,13 @@ def deployapp(name,app_type='app'):
         with settings(hide('running', 'stdout'), warn_only=True):
             run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
             -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
-            -e "s:<DOMAIN_NAME>:{domain_name}:g" releases/{release}/{app_name}/settings/site_settings.py'.format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
-                                                                                                                dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
-                                                                                                                dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
-                                                                                                                domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"]))
+            -e "s:<DOMAIN_NAME>:{domain_name}:g" -e "s:<APP_NAME>:{app_name}:g" -e "s:<PROJECTPATH>:{projectpath}:g" \
+            releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*'.format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
+                                                                                                        dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
+                                                                                                        dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                                                        domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
+                                                                                                        projectpath=app_settings["PROJECTPATH"]))
+
 
 
     symlink_current_release(release,app_type)
@@ -450,18 +462,6 @@ def deployapp(name,app_type='app'):
     migrate(app_type)
     install_web(app_type)
     restart(name)
-
-@task
-def restart(name):
-    """
-    Reload app server/nginx
-    """
-    setHostFromName(name)
-
-    with settings(warn_only=True):
-        sudo('if [ -x /etc/init.d/php5-fpm ]; then if [ "$( /etc/init.d/php5-fpm status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/php5-fpm start ; else /etc/init.d/php5-fpm reload ; fi ; fi')
-        sudo('if [ -x /etc/init.d/uwsgi ]; then if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi; fi')
-        sudo('if [ -x /etc/init.d/nginx ]; then if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi ; fi')
 
 @task
 def deploywp(name):
@@ -475,8 +475,11 @@ def deploywp(name):
         app_settings=loadSettings('blog')
 
     sudo('mkdir -p {path} ; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
-    put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog.{{project_name}}.com', use_sudo=True)
-    run('curl https://raw.github.com/wp-cli/wp-cli.github.com/master/installer.sh | bash')
+    put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
+    put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog-nginx.conf', use_sudo=True)
+    with settings(hide('running', 'stdout')):
+        sudo('sed -i -e "s:<PROJECTPATH>:{projectpath}:g" /etc/nginx/sites-enabled/blog-nginx.conf'.format(projectpath=app_settings["PROJECTPATH"]))
+        run('curl https://raw.github.com/wp-cli/wp-cli.github.com/master/installer.sh | bash')
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core download')
@@ -492,6 +495,18 @@ def deploywp(name):
     sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
+
+@task
+def restart(name):
+    """
+    Reload app server/nginx
+    """
+    setHostFromName(name)
+
+    with settings(hide('running'), warn_only=True):
+        sudo('if [ -x /etc/init.d/php5-fpm ]; then if [ "$( /etc/init.d/php5-fpm status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/php5-fpm start ; else /etc/init.d/php5-fpm reload ; fi ; fi')
+        sudo('if [ -x /etc/init.d/uwsgi ]; then if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi; fi')
+        sudo('if [ -x /etc/init.d/nginx ]; then if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi ; fi')
 
 #----------HELPER FUNCTIONS-----------
 
@@ -546,6 +561,13 @@ def install_package(name):
     with settings(hide('running', 'stdout'), warn_only=True):
         print _yellow('Installing package %s... ' % name),
         sudo('apt-get -qq -y --force-yes install %s' % name)
+        print _green('[DONE]')
+
+def install_package_fast(name):
+    """ install a package using APT """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Installing package %s... ' % name),
+        sudo('apt-fast -qq -y --force-yes install %s' % name)
         print _green('[DONE]')
 
 def update_apt():
@@ -609,8 +631,10 @@ def install_web(app_type='app'):
     sudo('pip install uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
         sudo('cp ./config/uwsgi /etc/init.d/uwsgi')
-        sudo('cp ./config/uwsgi.xml /etc/uwsgi.xml')
-        sudo('cp ./config/nginx.conf /etc/nginx/nginx.conf')
+        sudo('if [ ! -d /etc/uwsgi ]; then mkdir /etc/uwsgi ; fi')
+        sudo('cp ./config/{app_type}-uwsgi.xml /etc/uwsgi/'.format(app_type=app_type))
+        sudo('cp ./config/nginx.conf /etc/nginx/')
+        sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type,app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 def start_webservers():
@@ -640,8 +664,8 @@ def generateDefaultSettings(settingsType):
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
                         "APP_NAME": "expa_core",
                         "DATABASE_NAME": "expa_core",
-                        "DATABASE_HOST": "",
-                        "DATABASE_PORT": "",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
                         "PROJECTPATH" : "/mnt/ym/expa_core",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "core.{{project_name}}.com",
@@ -650,13 +674,13 @@ def generateDefaultSettings(settingsType):
                         }
 
     elif settingsType == 'blog':
-        app_settings = {"DATABASE_USER": "blog",
+        app_settings = {"DATABASE_USER": "{{project_name}}_blog",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
                         "APP_NAME": "blog",
                         "DATABASE_NAME": "blog",
-                        "DATABASE_HOST": "",
-                        "DATABASE_PORT": "",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
                         "PROJECTPATH" : "/mnt/ym/blog",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "blog.{{project_name}}.com",
@@ -671,8 +695,8 @@ def generateDefaultSettings(settingsType):
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
                         "APP_NAME": "{{project_name}}",
                         "DATABASE_NAME": "{{project_name}}",
-                        "DATABASE_HOST": "",
-                        "DATABASE_PORT": "",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "{{project_name}}.com",
@@ -730,7 +754,7 @@ def upload_tar_from_local(release=None,app_type='app'):
     put('{release}.tbz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
     run('cd {path}/releases/{release} && tar xjf ../../packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"],release=release))
     sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"],release=release))
-    #local('rm {release}.tbz'.format(release=release))
+    local('rm {release}.tbz'.format(release=release))
 
 def addToSshConfig(name,dns):
     """

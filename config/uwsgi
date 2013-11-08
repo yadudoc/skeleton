@@ -19,7 +19,7 @@ PATH=/sbin:/usr/sbin:/bin:/usr/bin
 DESC="uwsgi daemon"
 NAME=uwsgi
 DAEMON=/usr/local/bin/$NAME
-DAEMON_ARGS="-x /etc/uwsgi.xml -d /var/log/uwsgi.log"
+DAEMON_ARGS="--emperor /etc/uwsgi -d /var/log/uwsgi.log"
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
 
