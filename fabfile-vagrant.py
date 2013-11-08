@@ -81,6 +81,17 @@ def install_requirements():
         
         run('./bin/pip install -r ./releases/%(release)s/requirements/%(requirements_file)s.txt' % env)
 
+ @task
+def setup_mysql_server():
+    install_package('debconf-utils')
+    sudo('echo mysql-server-5.5 mysql-server/root_password password mysql | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password_again password mysql | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password seen true | debconf-set-selections', quiet=True)
+    sudo('echo mysql-server-5.5 mysql-server/root_password_again seen true | debconf-set-selections', quiet=True)
+
+    install_package('mysql-server-5.5')
+    sudo('mysqladmin -pmysql create {{project_name}}', warn_only=True)
+    sudo('mysql -uroot -pmysql -e "GRANT ALL PRIVILEGES ON {{project_name}}.* to {{project_name}}@\'localhost\' IDENTIFIED BY \'{{project_name}}\'"')
 
 #----------HELPER FUNCTIONS-----------
 def install_package(name):

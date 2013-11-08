@@ -432,6 +432,9 @@ def deployapp(name,app_type='app'):
     deploypath = app_settings["PROJECTPATH"] + '/releases/' + release    
 
     print(_green("--DEPLOYING {app_type} to {name}--".format(name=name,app_type=app_type)))      
+    if app_settings["DATABASE_HOST"] == 'localhost':
+        createlocaldb(name,app_type)
+
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
     sudo('chown -R ubuntu:ubuntu {}'.format(app_settings["INSTALLROOT"]))
     if app_settings["APP_NAME"] == 'expa_core':
@@ -474,6 +477,9 @@ def deploywp(name):
     except NameError:
         app_settings=loadSettings('blog')
 
+    if app_settings["DATABASE_HOST"] == 'localhost':
+        createlocaldb(name,'blog')
+        
     sudo('mkdir -p {path} ; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
     put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
     put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog-nginx.conf', use_sudo=True)
@@ -495,6 +501,56 @@ def deploywp(name):
     sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
+
+@task
+def install_mysql_server(name):
+    """
+    Install mysql server on named instance
+    """
+    setHostFromName(name)
+    
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings()
+
+    if not app_settings["LOCAL_MYSQL_PASS"]:
+        app_settings["LOCAL_MYSQL_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
+        saveSettings(app_settings, 'app_settings.json')
+        
+    update_apt()
+    install_package('debconf-utils')
+    with settings(hide('running', 'stdout')):
+        sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
+        sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
+
+    install_package('mysql-server-5.5')
+
+@task
+def createlocaldb(name,app_type='app'):
+    """
+    Create a local mysql db on named instance with given app settings.
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings()
+
+    try:
+        local_app_settings
+    except NameError:
+        local_app_settings=loadSettings(app_type)
+
+    try:
+        with settings(hide('running')):
+            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
+            sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],
+                                                                                                                                                    dbname=local_app_settings["DATABASE_NAME"],
+                                                                                                                                                    dbuser=local_app_settings["DATABASE_USER"],
+                                                                                                                                                    dbpass=local_app_settings["DATABASE_PASS"]))
+    except Exception as e:
+        print e
+        pass
 
 @task
 def restart(name):
