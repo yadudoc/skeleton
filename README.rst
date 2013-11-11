@@ -44,8 +44,7 @@ To install Django in the new virtual environment, run the following command::
 Creating your project
 =====================
 
-To create a new Django project called '**testme**' using
-django-twoscoops-project, run the following command::
+To create a new Django project called '**testme**' using django-twoscoops-project, run the following command::
 
     $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
     $ pip install -r requirements/local.txt
