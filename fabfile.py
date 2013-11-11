@@ -936,7 +936,7 @@ def removeFromSshConfig(dns):
                 lines = ssh_config.readlines()
                 blockstart = substringIndex(lines, dns)
                 blockend = substringIndex(lines, "ForwardAgent yes", blockstart)
-                del(lines[blockstart-3:blockend+2])
+                del(lines[blockstart-2:blockend+2])
                 ssh_config.seek(0)
                 ssh_config.write(''.join(lines))
                 ssh_config.truncate()
