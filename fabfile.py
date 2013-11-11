@@ -1,6 +1,7 @@
 import boto
 import boto.ec2
 import boto.rds
+import boto.route53
 
 import os, time, json, string, random, sys
 
@@ -384,9 +385,13 @@ def bootstrap(name,app_type='app'):
     :param name: The name of the node to be bootstrapped
     :return:
     """
+    setHostFromName(name)
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings(app_type)
     
     print(_green("--BOOTSTRAPPING {}--".format(name)))
-    setHostFromName(name)
     package_list = ['language-pack-en', 'aptitude', 'git-core', 'mysql-client', 'ntpdate']
     if app_type == 'blog':
         package_list.extend([ 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx'])
@@ -412,6 +417,8 @@ def bootstrap(name,app_type='app'):
 
     sudo('aptitude -y build-dep python-mysqldb')
     install_package_fast('python-mysqldb')
+    if app_settings["DATABASE_HOST"] == 'localhost':
+        install_mysql_server(name)
 
 @task
 def deployapp(name,app_type='app'):
@@ -424,7 +431,7 @@ def deployapp(name,app_type='app'):
     except NameError:
         app_settings=loadSettings(app_type)
 
-    if (app_type == 'expa_core') or (app_type == 'core'):
+    if (app_type == 'expa_core') or (app_type == 'core') or (app_type == 'expacore'):
         release = time.strftime('%Y%m%d%H%M%S')
     else:
         release = collect()
@@ -437,7 +444,7 @@ def deployapp(name,app_type='app'):
 
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
     sudo('chown -R ubuntu:ubuntu {}'.format(app_settings["INSTALLROOT"]))
-    if app_settings["APP_NAME"] == 'expa_core':
+    if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
         with cd('{path}'.format(path=deploypath)):
             run('git clone https://github.com/expa/core.git .')
             run('mkdir config')
@@ -451,20 +458,19 @@ def deployapp(name,app_type='app'):
         with settings(hide('running', 'stdout'), warn_only=True):
             run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
             -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
-            -e "s:<DOMAIN_NAME>:{domain_name}:g" -e "s:<APP_NAME>:{app_name}:g" -e "s:<PROJECTPATH>:{projectpath}:g" \
+            -e "s:<DOMAIN_NAME>:{domain_name}:g" -e "s:<APP_NAME>:{app_name}:g" -e "s:<PROJECTPATH>:{projectpath}:g" -e "s:<HOST_NAME>:{hostname}:g" \
             releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*'.format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
                                                                                                         dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
                                                                                                         dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
                                                                                                         domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
-                                                                                                        projectpath=app_settings["PROJECTPATH"]))
-
-
+                                                                                                        projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
 
     symlink_current_release(release,app_type)
     install_requirements(release,app_type)
     migrate(app_type)
     install_web(app_type)
     restart(name)
+    setup_route53_dns(name, app_type)
 
 @task
 def deploywp(name):
@@ -501,56 +507,7 @@ def deploywp(name):
     sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
-
-@task
-def install_mysql_server(name):
-    """
-    Install mysql server on named instance
-    """
-    setHostFromName(name)
-    
-    try:
-        app_settings
-    except NameError:
-        app_settings=loadSettings()
-
-    if not app_settings["LOCAL_MYSQL_PASS"]:
-        app_settings["LOCAL_MYSQL_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
-        saveSettings(app_settings, 'app_settings.json')
-        
-    update_apt()
-    install_package('debconf-utils')
-    with settings(hide('running', 'stdout')):
-        sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
-        sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
-
-    install_package('mysql-server-5.5')
-
-@task
-def createlocaldb(name,app_type='app'):
-    """
-    Create a local mysql db on named instance with given app settings.
-    """
-    try:
-        app_settings
-    except NameError:
-        app_settings=loadSettings()
-
-    try:
-        local_app_settings
-    except NameError:
-        local_app_settings=loadSettings(app_type)
-
-    try:
-        with settings(hide('running')):
-            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
-            sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],
-                                                                                                                                                    dbname=local_app_settings["DATABASE_NAME"],
-                                                                                                                                                    dbuser=local_app_settings["DATABASE_USER"],
-                                                                                                                                                    dbpass=local_app_settings["DATABASE_PASS"]))
-    except Exception as e:
-        print e
-        pass
+    setup_route53_dns(name,'blog')
 
 @task
 def restart(name):
@@ -565,7 +522,6 @@ def restart(name):
         sudo('if [ -x /etc/init.d/nginx ]; then if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi ; fi')
 
 #----------HELPER FUNCTIONS-----------
-
 @contextmanager
 def _virtualenv():
     with prefix(env.activate):
@@ -595,8 +551,8 @@ def connect_to_ec2():
         aws_cfg=loadAwsCfg()
 
     return boto.ec2.connect_to_region(aws_cfg["region"],
-    aws_access_key_id=aws_cfg["aws_access_key_id"],
-    aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+                                      aws_access_key_id=aws_cfg["aws_access_key_id"],
+                                      aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
 def connect_to_rds():
     """
@@ -609,29 +565,95 @@ def connect_to_rds():
         aws_cfg=loadAwsCfg()
 
     return boto.rds.connect_to_region(aws_cfg["region"],
-    aws_access_key_id=aws_cfg["aws_access_key_id"],
-    aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+                                      aws_access_key_id=aws_cfg["aws_access_key_id"],
+                                      aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
-def install_package(name):
-    """ install a package using APT """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Installing package %s... ' % name),
-        sudo('apt-get -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
+def connect_to_r53():
+    """
+    return a route53 connection given credentials imported from config
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+ 
+    return boto.route53.connect_to_region('universal',
+                                          aws_access_key_id=aws_cfg["aws_access_key_id"],
+                                          aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
-def install_package_fast(name):
-    """ install a package using APT """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Installing package %s... ' % name),
-        sudo('apt-fast -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
+def setup_route53_dns(name,app_type='app'):
+    """
+    Creates Route53 DNS entries for given ec2 instance and app_type
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
 
-def update_apt():
-    """ run apt-get update """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Updating APT cache... '),
-        sudo('apt-get update')
-        print _green('[DONE]')
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadSettings(app_type)
+
+    try:
+        ec2host = open("fab_hosts/{}.txt".format(name)).readline().strip() + "."
+    except IOError:
+        print _red("{name} is not reachable. either run fab getec2instances or fab create_ec2:{name} to create the instance".format(name=name))
+        return 1
+
+    app_zone_name = app_settings["DOMAIN_NAME"] + "."
+    app_host_name = app_settings["HOST_NAME"] + "."
+
+    print _green("Creating DNS for " + name + " and app_type " + app_type)
+    conn = connect_to_r53()
+    if conn.get_zone(app_zone_name) is None:
+        print _yellow("creating zone " + _green(app_zone_name))
+        zone = conn.create_zone(app_zone_name)
+    else:
+        print _yellow("zone " + _green(app_zone_name) + _yellow(" already exists. skipping creation"))
+        zone = conn.get_zone(app_zone_name)
+    
+    if app_type == 'app':
+        # TODO: cleanup parser
+        # ex: ec2-54-204-216-244.compute-1.amazonaws.com
+        ec2ip = '.'.join(ec2host.split('.')[0].split('-')[1:5])
+        try:
+            apex = zone.add_a(app_zone_name,ec2ip,ttl=300)
+            while apex.status != 'INSYNC':
+                print _yellow("creation of A record: " + _green(app_zone_name + " " + ec2ip) + _yellow(" is ") + _red(apex.status))
+                apex.update()
+                time.sleep(10)
+            else:
+                print _green("creation of A record: " + app_zone_name + " is now " + apex.status)
+        except Exception as e:
+            if 'already exists' in e.message:
+                print _yellow("address record " + _green(app_zone_name + " " + ec2ip) + _yellow(" already exists. skipping creation"))
+            else:
+                raise
+
+    try:
+        cname = zone.add_cname(app_host_name,ec2host,ttl=300,comment="expa " + app_type + " entry")
+        while cname.status != 'INSYNC':
+            print _yellow("creation of cname: " + _green(app_host_name) + _yellow(" is ") + _red(cname.status))            
+            cname.update()            
+            time.sleep(10)
+        else:
+            print _green("creation of cname: " + app_host_name + " is now " + cname.status)            
+    except Exception as e:
+        if 'already exists' in e.message:
+            print _yellow("cname record " + _green(app_host_name) + _yellow(" already exists. skipping creation"))
+        else:
+            raise
+        
+def loadAwsCfg():
+    try:
+        aws_cfg = Config(open("aws.cfg"))
+        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
+                                                           aws_cfg["key_name"] + ".pem"))
+        return aws_cfg
+    except Exception as e:
+        print "aws.cfg not found. %s" %e
+        return 1
 
 def install_requirements(release=None,app_type='app'):
     "Install the required packages from the requirements file using pip"
@@ -693,83 +715,34 @@ def install_web(app_type='app'):
         sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type,app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
+def install_mysql_server(name):
+    """
+    Install mysql server on named instance
+    """
+    setHostFromName(name)
+    
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings()
+
+    try:
+        app_settings["LOCAL_MYSQL_PASS"]
+    except KeyError:
+        app_settings["LOCAL_MYSQL_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
+        saveSettings(app_settings, 'app_settings.json')
+        
+    update_apt()
+    install_package('debconf-utils')
+    with settings(hide('running', 'stdout')):
+        sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
+        sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
+
+    install_package('mysql-server-5.5')
+
 def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
-
-def saveSettings(appSettingsJson,settingsFile):
-    #print _red("saving settings to: " + settingsFile)
-    with open(settingsFile, "w") as settingsFile:
-        settingsFile.write(json.dumps(appSettingsJson,indent=4,separators=(',', ': '),sort_keys=True))
-
-def loadSettings(app_type='app'):
-    settingsFile = app_type + '_settings.json'
-    
-    try:
-        with open(settingsFile, "r") as settingsFile:
-            settings = json.load(settingsFile)
-    except Exception as e:
-        settings = generateDefaultSettings(app_type)
-        saveSettings(settings,settingsFile)
-    return settings
-
-def generateDefaultSettings(settingsType):
-    if (settingsType == 'expa_core') or (settingsType == 'core') :
-        app_settings = {"DATABASE_USER": "expa_core",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "expa_core",
-                        "DATABASE_NAME": "expa_core",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
-                        "PROJECTPATH" : "/mnt/ym/expa_core",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "core.{{project_name}}.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
-                        }
-
-    elif settingsType == 'blog':
-        app_settings = {"DATABASE_USER": "{{project_name}}_blog",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "blog",
-                        "DATABASE_NAME": "blog",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
-                        "PROJECTPATH" : "/mnt/ym/blog",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "blog.{{project_name}}.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "BLOG_ADMIN" : "{{project_name}}_admin",
-                        "BLOG_ADMIN_EMAIL" : "{{project_name}}_admin@{{project_name}}.com",
-                        "BLOG_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16))
-                        }
-    else:
-        app_settings = {"DATABASE_USER": "{{project_name}}",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "{{project_name}}",
-                        "DATABASE_NAME": "{{project_name}}",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
-                        "PROJECTPATH" : "/mnt/ym/{{project_name}}",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "{{project_name}}.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
-                        }
-    return app_settings
-
-def loadAwsCfg():
-    try:
-        aws_cfg = Config(open("aws.cfg"))
-        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
-                                                           aws_cfg["key_name"] + ".pem"))
-        return aws_cfg
-    except Exception as e:
-        print "aws.cfg not found. %s" %e
-        sys.exit()
 
 def collect():
     """
@@ -812,6 +785,119 @@ def upload_tar_from_local(release=None,app_type='app'):
     sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"],release=release))
     local('rm {release}.tbz'.format(release=release))
 
+def createlocaldb(name,app_type='app'):
+    """
+    Create a local mysql db on named instance with given app settings.
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings()
+
+    try:
+        local_app_settings
+    except NameError:
+        local_app_settings=loadSettings(app_type)
+
+    try:
+        with settings(hide('running','warnings')):
+            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
+            sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],
+                                                                                                                                                    dbname=local_app_settings["DATABASE_NAME"],
+                                                                                                                                                    dbuser=local_app_settings["DATABASE_USER"],
+                                                                                                                                                    dbpass=local_app_settings["DATABASE_PASS"]))
+    except Exception as e:
+        print e
+        pass
+
+def install_package(name):
+    """ install a package using APT """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Installing package %s... ' % name),
+        sudo('apt-get -qq -y --force-yes install %s' % name)
+        print _green('[DONE]')
+
+def install_package_fast(name):
+    """ install a package using APT """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Installing package %s... ' % name),
+        sudo('apt-fast -qq -y --force-yes install %s' % name)
+        print _green('[DONE]')
+
+def update_apt():
+    """ run apt-get update """
+    with settings(hide('running', 'stdout'), warn_only=True):
+        print _yellow('Updating APT cache... '),
+        sudo('apt-get update')
+        print _green('[DONE]')
+
+def saveSettings(appSettingsJson,settingsFile):
+    #print _red("saving settings to: " + settingsFile)
+    with open(settingsFile, "w") as settingsFile:
+        settingsFile.write(json.dumps(appSettingsJson,indent=4,separators=(',', ': '),sort_keys=True))
+
+def loadSettings(app_type='app'):
+    settingsFile = app_type + '_settings.json'
+    
+    try:
+        with open(settingsFile, "r") as settingsFile:
+            settings = json.load(settingsFile)
+    except Exception as e:
+        settings = generateDefaultSettings(app_type)
+        saveSettings(settings,settingsFile)
+    return settings
+
+def generateDefaultSettings(settingsType):
+    if (settingsType == 'expa_core') or (settingsType == 'core') or (settingsType == 'expacore') :
+        app_settings = {"DATABASE_USER": "expacore",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "expa_core",
+                        "DATABASE_NAME": "expacore",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
+                        "PROJECTPATH" : "/mnt/ym/expacore",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "demo.expa.com",
+                        "HOST_NAME" : "core.demo.expa.com",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        }
+
+    elif settingsType == 'blog':
+        app_settings = {"DATABASE_USER": "{{project_name}}_blog",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "blog",
+                        "DATABASE_NAME": "blog",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
+                        "PROJECTPATH" : "/mnt/ym/blog",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "demo.expa.com",
+                        "HOST_NAME" : "blog.demo.expa.com",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "BLOG_ADMIN" : "{{project_name}}_admin",
+                        "BLOG_ADMIN_EMAIL" : "{{project_name}}_admin@{{project_name}}.com",
+                        "BLOG_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16))
+                        }
+    else:
+        app_settings = {"DATABASE_USER": "{{project_name}}",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "{{project_name}}",
+                        "DATABASE_NAME": "{{project_name}}",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "3306",
+                        "PROJECTPATH" : "/mnt/ym/{{project_name}}",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "demo.expa.com",
+                        "HOST_NAME" : "www.demo.expa.com",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        }
+    return app_settings
+
 def addToSshConfig(name,dns):
     """
     Add provided hostname and dns to ssh_config with config template below
@@ -850,7 +936,7 @@ def removeFromSshConfig(dns):
                 lines = ssh_config.readlines()
                 blockstart = substringIndex(lines, dns)
                 blockend = substringIndex(lines, "ForwardAgent yes", blockstart)
-                del(lines[blockstart-2:blockend+2])
+                del(lines[blockstart-3:blockend+2])
                 ssh_config.seek(0)
                 ssh_config.write(''.join(lines))
                 ssh_config.truncate()
