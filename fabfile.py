@@ -285,6 +285,7 @@ def terminate_ec2(name):
                     conn.terminate_instances(instance_ids=[instance.id])
                     print(_yellow("Terminated"))
                     removeFromSshConfig(instance.public_dns_name)
+                    removeDnsEntries(name)
 
 @task
 def terminate_rds(name):
@@ -456,10 +457,10 @@ def deployapp(name,app_type='app'):
         run('virtualenv --distribute .')
         run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],release=release))
         with settings(hide('running', 'stdout'), warn_only=True):
-            run('sed -i -e "s:<DBNAME>:{dbname}:g" -e "s:<DBUSER>:{dbuser}:g" -e "s:<DBPASS>:{dbpass}:g" \
-            -e "s:<DBHOST>:{dbhost}:g" -e "s:<DBPORT>:{dbport}:g" -e "s:<DJANGOSECRETKEY>:{djangosecretkey}:g" \
-            -e "s:<DOMAIN_NAME>:{domain_name}:g" -e "s:<APP_NAME>:{app_name}:g" -e "s:<PROJECTPATH>:{projectpath}:g" -e "s:<HOST_NAME>:{hostname}:g" \
-            releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*'.format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
+            run("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
+            -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
+            -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
+            releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
                                                                                                         dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
                                                                                                         dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
                                                                                                         domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
@@ -580,6 +581,42 @@ def connect_to_r53():
     return boto.route53.connect_to_region('universal',
                                           aws_access_key_id=aws_cfg["aws_access_key_id"],
                                           aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+
+def removeDnsEntries(name):
+    """
+    Remove route53 entries that point to ec2 instance with provided named alias
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg=loadAwsCfg()
+
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings()
+
+    try:
+        ec2host = open("fab_hosts/{}.txt".format(name)).readline().strip() + "."
+    except IOError:
+        print _red("{name} is not reachable. either run fab getec2instances or fab create_ec2:{name} to create the instance".format(name=name))
+        return 1
+    ec2ip = '.'.join(ec2host.split('.')[0].split('-')[1:5])
+    app_zone_name = app_settings["DOMAIN_NAME"] + "."
+
+    print _green("Deleting DNS entries that point to " + name + "/" + ec2host)
+    conn = connect_to_r53()
+
+    zone = conn.get_zone(app_zone_name)
+    records = zone.get_records()
+
+    for record in records:
+        if (record.type == 'CNAME') and (record.to_print() == ec2host):
+            print _yellow("...dropping cname " + _green(record.name) + "...")
+            zone.delete_cname(record.name)
+        elif (record.type == 'A') and (record.to_print() == ec2ip):
+            print _yellow("...dropping address record " + _green(record.name) + "...")
+            zone.delete_a(record.name)
 
 def setup_route53_dns(name,app_type='app'):
     """
