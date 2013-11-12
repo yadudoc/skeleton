@@ -497,11 +497,12 @@ def deploywp(name):
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core download')
-        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core config --dbname={dbname} --dbuser={dbuser} --dbpass={dbpass} --dbhost={dbhost}'.format(dbname=app_settings["DATABASE_NAME"],
+        with settings(hide('running')):
+            run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core config --dbname={dbname} --dbuser={dbuser} --dbpass={dbpass} --dbhost={dbhost}'.format(dbname=app_settings["DATABASE_NAME"],
                                                                                                                                                         dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                         dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                         dbhost=app_settings["DATABASE_HOST"]))
-        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{host_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
+            run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{host_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
                                                                                                                                                                                                                          host_name=app_settings["HOST_NAME"],
                                                                                                                                                                                                                          blog_admin=app_settings["BLOG_ADMIN"],
                                                                                                                                                                                                                          blog_admin_email=app_settings["BLOG_ADMIN_EMAIL"],
