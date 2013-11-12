@@ -400,7 +400,7 @@ def bootstrap(name,app_type='app'):
         package_list.extend([ 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'libmysqlclient-dev' ])
 
     update_apt()
-    install_package('debconf-utils')
+    install_package('debconf-utils software-properties-common python-software-properties')
     with settings(hide('running', 'stdout')):
         sudo('add-apt-repository -y ppa:apt-fast/stable')
         sudo('echo apt-fast apt-fast/aptmanager select apt-get | debconf-set-selections')
@@ -440,12 +440,22 @@ def deployapp(name,app_type='app'):
 
     deploypath = app_settings["PROJECTPATH"] + '/releases/' + release    
 
+    try:
+        env.user
+        env.group
+    except NameError:
+        env.user = 'ubuntu'
+        env.group = 'ubuntu'
+
     print(_green("--DEPLOYING {app_type} to {name}--".format(name=name,app_type=app_type)))      
-    if app_settings["DATABASE_HOST"] == 'localhost':
-        createlocaldb(name,app_type)
+    try:
+        env.development
+    except NameError:
+        if app_settings["DATABASE_HOST"] == 'localhost':
+            createlocaldb(name,app_type)
 
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
-    sudo('chown -R ubuntu:ubuntu {}'.format(app_settings["INSTALLROOT"]))
+    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"],user=env.user,group=env.group))
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
         with cd('{path}'.format(path=deploypath)):
             run('git clone https://github.com/expa/core.git .')
@@ -456,23 +466,29 @@ def deployapp(name,app_type='app'):
 
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
-        run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],release=release))
-        with settings(hide('running', 'stdout'), warn_only=True):
-            run("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
-            -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
-            -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
-            releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
-                                                                                                        dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
-                                                                                                        dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
-                                                                                                        domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
-                                                                                                        projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
+        try:
+            env.development
+        except NameError:
+            run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],release=release))
+            with settings(hide('running', 'stdout'), warn_only=True):
+                run("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
+                    -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
+                    -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
+                    releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
+                                                                                                                dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                                                                domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
+                                                                                                                projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
 
     symlink_current_release(release,app_type)
     install_requirements(release,app_type)
     migrate(app_type)
-    install_web(app_type)
-    restart(name)
-    setup_route53_dns(name, app_type)
+    try:
+        env.development
+    except NameError:
+        install_web(app_type)
+        restart(name)
+        setup_route53_dns(name, app_type)
 
 @task
 def deploywp(name):
@@ -511,6 +527,34 @@ def deploywp(name):
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
     setup_route53_dns(name,'blog')
+
+@task
+def localdev():
+    try:
+        app_settings
+    except NameError:
+        app_settings=loadSettings('app')
+
+    try:
+        core_settings
+    except NameError:
+        core_settings=loadSettings('core')
+
+    app_settings["REQUIREMENTSFILE"] = 'local'
+    core_settings["REQUIREMENTSFILE"] = 'local'
+    saveSettings(app_settings,'app_settings.json')
+    saveSettings(core_settings,'core_settings.json')
+    env.user = 'vagrant'
+    env.group = 'vagrant'
+    env.target="dev"
+    env.development='true'
+
+    bootstrap(env.host_string) 
+    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"],user=env.user,group=env.group))
+    with cd('{}'.format(app_settings["PROJECTPATH"])):
+        run('virtualenv --distribute .')
+    install_requirements()
+    deployapp(env.host_string, 'core')
 
 @task
 def restart(name):
@@ -710,8 +754,8 @@ def install_requirements(release=None,app_type='app'):
         run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
         
-        run('./bin/pip install -r ./releases/{release}/requirements.txt'.format(release=release,
-                                                                                requirements_file=app_settings["REQUIREMENTSFILE"]))
+        run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
+                                                                                                    requirements_file=app_settings["REQUIREMENTSFILE"]))
 
 def migrate(app_type):
     "Update the database"
@@ -983,8 +1027,9 @@ def removeFromSshConfig(dns):
             print e
 
 def setHostFromName(name):
-    f = open("fab_hosts/{}.txt".format(name))
-    env.host_string = "ubuntu@{}".format(f.readline().strip())
+    if env.host_string is None:
+        f = open("fab_hosts/{}.txt".format(name))
+        env.host_string = "ubuntu@{}".format(f.readline().strip())
 
 def substringIndex(the_list, substring, offset=0):
     for i, s in enumerate(the_list):

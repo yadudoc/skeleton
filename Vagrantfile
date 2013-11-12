@@ -17,6 +17,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.synced_folder ".", "/mnt/ym/{{project_name}}/releases/current"
   config.vm.network :public_network
   config.vm.network "forwarded_port", guest: 8000, host: 8000
+  config.vm.network "forwarded_port", guest: 8001, host: 8001
 
   config.vm.provider "virtualbox" do |v|
     v.customize ["modifyvm", :id, "--name", hostname]
@@ -38,7 +39,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   # Enable provisioning with fabric script, specifiying jobs you want execute,
   # and the path of fabfile.
   config.vm.provision :fabric do |fabric|
-    fabric.fabfile_path = "./fabfile-vagrant.py"
-    fabric.tasks = ["setup_dev", ]
+    fabric.fabfile_path = "./fabfile.py"
+    fabric.tasks = ["localdev", ]
   end
 end
