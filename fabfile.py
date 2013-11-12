@@ -416,7 +416,8 @@ def bootstrap(name,app_type='app'):
     print _blue('Installing packages. please wait...')
     install_package_fast(' '.join(package_list))
 
-    sudo('aptitude -y build-dep python-mysqldb')
+    with settings(hide('stdout')):
+        sudo('aptitude -y build-dep python-mysqldb')
     install_package_fast('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
         install_mysql_server(name)
@@ -486,12 +487,12 @@ def deploywp(name):
 
     if app_settings["DATABASE_HOST"] == 'localhost':
         createlocaldb(name,'blog')
-        
-    sudo('mkdir -p {path} ; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
+    
+    sudo('mkdir -p {path} {path}/tmp/ {path}/pid/ {path}/sock/; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
     put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
     put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog-nginx.conf', use_sudo=True)
     with settings(hide('running', 'stdout')):
-        sudo('sed -i -e "s:<PROJECTPATH>:{projectpath}:g" /etc/nginx/sites-enabled/blog-nginx.conf'.format(projectpath=app_settings["PROJECTPATH"]))
+        sudo('sed -i -e "s:<PROJECTPATH>:{projectpath}:g" -e "s:<HOST_NAME>:{hostname}:g" /etc/nginx/sites-enabled/blog-nginx.conf'.format(projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
         run('curl https://raw.github.com/wp-cli/wp-cli.github.com/master/installer.sh | bash')
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
@@ -500,8 +501,8 @@ def deploywp(name):
                                                                                                                                                         dbuser=app_settings["DATABASE_USER"],
                                                                                                                                                         dbpass=app_settings["DATABASE_PASS"],
                                                                                                                                                         dbhost=app_settings["DATABASE_HOST"]))
-        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{domain_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
-                                                                                                                                                                                                                         domain_name=app_settings["DOMAIN_NAME"],
+        run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{host_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
+                                                                                                                                                                                                                         host_name=app_settings["HOST_NAME"],
                                                                                                                                                                                                                          blog_admin=app_settings["BLOG_ADMIN"],
                                                                                                                                                                                                                          blog_admin_email=app_settings["BLOG_ADMIN_EMAIL"],
                                                                                                                                                                                                                          blog_pass=app_settings["BLOG_PASS"]))
