@@ -479,7 +479,7 @@ def deployapp(name, app_type='app'):
             run('./bin/python ./releases/{release}/expa_core/manage.py collectstatic --noinput'.format(release=release))
             migrate(app_type)
             with settings(hide('running')):
-                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'admin\', \'admin@example.com\', \'pass\')" \
+                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{coreadmin}\', \'{coreadminemail}\', \'{coreadminpass}\')" \
                     | ./bin/python ./releases/{release}/expa_core/manage.py shell'.format(coreadmin=app_settings["COREADMIN_USER"],
                                                                                           coreadminemail=app_settings["COREADMIN_EMAIL"],
                                                                                           coreadminpass=app_settings["COREADMIN_PASS"],
