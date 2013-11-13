@@ -435,7 +435,7 @@ def deployapp(name, app_type='app'):
     if env.host_string != '127.0.0.1':
         env.user = 'ubuntu'
         env.group = 'ubuntu'
-    
+
     print(_green("--DEPLOYING {app_type} to {name}--".format(name=name, app_type=app_type)))
     try:
         env.development
