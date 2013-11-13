@@ -94,9 +94,9 @@ def setup_aws_account():
                                                               'A group that allows Webserver access')
                 rdsGroup.authorize(ec2_group=group)
             except Exception, error:
-                print _red('Error occured while create security group "%s": %s') %(name, str(error))
+                print _red('Error occured while create security group "%s": %s') %(aws_cfg["group_name"], str(error))
                 print _yellow('Rolling back!')
-                rdsConn.delete_dbsecurity_group(name)
+                rds.delete_dbsecurity_group(aws_cfg["group_name"])
                 return
         else:
             raise
