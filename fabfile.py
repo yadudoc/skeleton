@@ -13,6 +13,7 @@ from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide
+
 from config import Config
 
 #-----FABRIC TASKS-----------
@@ -251,6 +252,17 @@ def create_ec2(name, tag=None, ami=None):
     hostfile = open("fab_hosts/{}.txt".format(name), "w")
     hostfile.write(instance.public_dns_name)
     hostfile.close()
+
+    print _yellow("testing connectivity to instance: ") + _green(name)
+    connectivity = False
+    while connectivity is False:
+        try:
+            sethostfromname(name)
+            with settings(hide('running','stdout')):
+                run('uname')
+            connectivity = True
+        except Exception:
+            time.sleep(5)
     return instance.public_dns_name
 
 @task
