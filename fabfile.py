@@ -1014,7 +1014,7 @@ def addtosshconfig(name, dns):
                 ssh_config.seek(0)
                 if not dns in ssh_config.read():
                     ssh_config.seek(0, 2)
-                    ssh_config.write("\n{}\n".format(ssh_slug))
+                    ssh_config.write("{}\n".format(ssh_slug))
         except Exception as error:
             print error
 
