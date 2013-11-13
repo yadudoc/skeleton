@@ -477,7 +477,16 @@ def deployapp(name, app_type='app'):
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
         with cd('{}'.format(app_settings["PROJECTPATH"])):
             run('./bin/python ./releases/{release}/expa_core/manage.py collectstatic --noinput'.format(release=release))
-    migrate(app_type)
+            migrate(app_type)
+            with settings(hide('running')):
+                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'admin\', \'admin@example.com\', \'pass\')" \
+                    | ./bin/python ./releases/{release}/expa_core/manage.py shell'.format(coreadmin=app_settings["COREADMIN_USER"],
+                                                                                          coreadminemail=app_settings["COREADMIN_EMAIL"],
+                                                                                          coreadminpass=app_settings["COREADMIN_PASS"],
+                                                                                          release=release))
+                
+    else:
+        migrate(app_type)
     try:
         env.development
     except AttributeError:
@@ -942,6 +951,9 @@ def generatedefaultsettings(settingstype):
                         "HOST_NAME" : "core.demo.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "GITHUB_USER" : "mhexpa",
+                        "COREADMIN_USER" : "coreadmin",
+                        "COREADMIN_EMAIL" : "coreadmin@expa.com",
+                        "COREADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
 
