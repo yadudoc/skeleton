@@ -1024,7 +1024,7 @@ def removefromsshconfig(dns):
             print error
 
 def sethostfromname(name):
-    if env.host_string is None:
+    if env.host_string != '127.0.0.1':
         fabhostfile = open("fab_hosts/{}.txt".format(name))
         env.host_string = "ubuntu@{}".format(fabhostfile.readline().strip())
 
