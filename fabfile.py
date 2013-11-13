@@ -3,15 +3,16 @@ import boto.ec2
 import boto.rds
 import boto.route53
 
-import os, time, json, string, random, sys
+import os, time, json, string, random
 
-from tempfile import mkdtemp
 from contextlib import contextmanager
 
 from fabric.operations import put
-from fabric.api import env, local, sudo, run, cd, prefix, task, settings, execute
-from fabric.colors import green as _green, yellow as _yellow, red as _red, blue as _blue
-from fabric.context_managers import hide, show, lcd
+from fabric.api import env, local, sudo, run, cd, prefix
+from fabric.api import task, settings
+from fabric.colors import green as _green, yellow as _yellow
+from fabric.colors import red as _red, blue as _blue
+from fabric.context_managers import hide
 from config import Config
 
 #-----FABRIC TASKS-----------
@@ -23,7 +24,7 @@ def setup_aws_account():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     ec2 = connect_to_ec2()
 
@@ -34,8 +35,8 @@ def setup_aws_account():
         key_name = aws_cfg["key_name"]
         key = ec2.get_all_key_pairs(keynames=[key_name])[0]
         print "key name {} already exists".format(key_name)
-    except ec2.ResponseError, e:
-        if e.code == 'InvalidKeyPair.NotFound':
+    except ec2.ResponseError, error:
+        if error.code == 'InvalidKeyPair.NotFound':
             print 'Creating keypair: %s' % aws_cfg["key_name"]
             # Create an SSH key to use when logging into instances.
             key = ec2.create_key_pair(aws_cfg["key_name"])
@@ -61,8 +62,8 @@ def setup_aws_account():
     # it means that it doesn't exist and we need to create it.
     try:
         group = ec2.get_all_security_groups(groupnames=[aws_cfg["group_name"]])[0]
-    except ec2.ResponseError, e:
-        if e.code == 'InvalidGroup.NotFound':
+    except ec2.ResponseError, error:
+        if error.code == 'InvalidGroup.NotFound':
             print 'Creating Security Group: %s' % aws_cfg["group_name"]
             # Create a security group to control access to instance via SSH.
             group = ec2.create_security_group(aws_cfg["group_name"],
@@ -75,8 +76,8 @@ def setup_aws_account():
     for port in ["80", "443", aws_cfg["ssh_port"]]:
         try:
             group.authorize('tcp', port, port, "0.0.0.0/0")
-        except ec2.ResponseError, e:
-            if e.code == 'InvalidPermission.Duplicate':
+        except ec2.ResponseError, error:
+            if error.code == 'InvalidPermission.Duplicate':
                 print 'Security Group: %s already authorized' % aws_cfg["group_name"]
             else:
                 raise
@@ -84,15 +85,15 @@ def setup_aws_account():
     # rds authorization
     rds = connect_to_rds()
     try:
-        rdsGroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg["group_name"])[0]
-    except rds.ResponseError, e:
-        if e.code == 'DBSecurityGroupNotFound':
+        rdsgroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg["group_name"])[0]
+    except rds.ResponseError, error:
+        if error.code == 'DBSecurityGroupNotFound':
             print 'Creating DB Security Group: %s' % aws_cfg["group_name"]
             try:
                 # Create a security group to control access to instance via SSH.
-                rdsGroup = rds.create_dbsecurity_group(aws_cfg["group_name"],
+                rdsgroup = rds.create_dbsecurity_group(aws_cfg["group_name"],
                                                               'A group that allows Webserver access')
-                rdsGroup.authorize(ec2_group=group)
+                rdsgroup.authorize(ec2_group=group)
             except Exception, error:
                 print _red('Error occured while create security group "%s": %s') %(aws_cfg["group_name"], str(error))
                 print _yellow('Rolling back!')
@@ -102,7 +103,7 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name,rdsType='app'):
+def create_rds(name, rdstype='app'):
     """
     Launch an RDS instance with name provided
 
@@ -111,64 +112,57 @@ def create_rds(name,rdsType='app'):
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(rdsType)
+        app_settings = loadsettings(rdstype)
 
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
-
-    dbName=app_settings["DATABASE_NAME"]
-    dbStorageSize=aws_cfg["rds_storage_size"]
-    dbInstanceSize=aws_cfg["rds_instance_size"]
-    dbUser=app_settings["DATABASE_USER"]
-    dbPassword=app_settings["DATABASE_PASS"]
-    group_name=aws_cfg["group_name"]
+        aws_cfg = load_aws_cfg()
 
     conn = connect_to_rds()
 
     try:
-        group = conn.get_all_dbsecurity_groups(groupname=group_name)[0]
-    except conn.ResponseError, e:
+        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg["group_name"])[0]
+    except conn.ResponseError, error:
         setup_aws_account()
 
     print(_green("Creating RDS instance {name}...".format(name=name)))
 
     try:
-        db = conn.create_dbinstance(id=name, 
-                                   allocated_storage=dbStorageSize,
-                                   instance_class=dbInstanceSize, 
-                                   engine='MySQL', 
-                                   master_username=dbUser, 
-                                   master_password=dbPassword, 
-                                   db_name=dbName, 
-                                   security_groups=[group_name])
+        dbinstance = conn.create_dbinstance(id=name,
+                                   allocated_storage=aws_cfg["rds_storage_size"],
+                                   instance_class=aws_cfg["rds_instance_size"],
+                                   engine='MySQL',
+                                   master_username=app_settings["DATABASE_USER"],
+                                   master_password=app_settings["DATABASE_PASS"],
+                                   db_name=app_settings["DATABASE_NAME"],
+                                   security_groups=[group])
     except Exception as error:
         print _red('Error occured while provisioning the RDS instance %s' % str(error))
-        print name, dbStorageSize, dbInstanceSize, dbUser, dbPassword, dbName, group_name
+        print name, aws_cfg["rds_storage_size"], aws_cfg["rds_instance_size"], app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
         return
 
     print _yellow('Waiting for rdsInstance to start...')
-    status = db.update()
+    status = dbinstance.update()
     while status != 'available':
         time.sleep(45)
-        status = db.update()
+        status = dbinstance.update()
         print _yellow('Still waiting for rdsInstance to start. current status is ') + _red(status)
 
     if status == 'available':
-        print _green('New rdsInstance %s accessible at %s on port %d') % (db.id, db.endpoint[0], db.endpoint[1])
-    
-    dbHost = str(db.endpoint[0])
-    dbPort = str(db.endpoint[1])
+        print _green('New rdsInstance %s accessible at %s on port %d') % (dbinstance.id, dbinstance.endpoint[0], dbinstance.endpoint[1])
 
-    app_settings["DATABASE_HOST"] = dbHost
-    app_settings["DATABASE_PORT"] = dbPort
-    saveSettings(app_settings, rdsType + '_settings.json')
-    
-    return str(db.endpoint)
+    dbhost = str(dbinstance.endpoint[0])
+    dbport = str(dbinstance.endpoint[1])
+
+    app_settings["DATABASE_HOST"] = dbhost
+    app_settings["DATABASE_PORT"] = dbport
+    savesettings(app_settings, rdstype + '_settings.json')
+
+    return str(dbinstance.endpoint)
 
 @task
-def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=None,cmd_shell=True,login_user='ubuntu',ssh_passwd=None,ami=None):
+def create_ec2(name, tag=None, ami=None):
 
     """
     Launch an instance and wait for it to start running.
@@ -198,7 +192,7 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     tag        A name that will be used to tag the instance so we can
                easily find it later.
 
-    user_data  Data that will be passed to the newly started instance at launch 
+    user_data  Data that will be passed to the newly started instance at launch
                and will be accessible via the metadata service running at http://169.254.169.254.
 
     cmd_shell  If true, a boto CmdShell object will be created and returned.
@@ -214,17 +208,15 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     if ami is None:
-        ami=aws_cfg["ubuntu_lts_ami"]
-    instance_type=aws_cfg["instance_type"]
-    key_name=aws_cfg["key_name"]
-    key_dir=aws_cfg["key_dir"]
-    group_name=aws_cfg["group_name"]
-    ssh_port=aws_cfg["ssh_port"]
+        ami = aws_cfg["ubuntu_lts_ami"]
+    instance_type = aws_cfg["instance_type"]
+    key_name = aws_cfg["key_name"]
+    group_name = aws_cfg["group_name"]
 
-    print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name,type=instance_type,ami=ami)))
+    print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name, type=instance_type, ami=ami)))
     print(_yellow("...Creating EC2 instance..."))
 
     conn = connect_to_ec2()
@@ -232,12 +224,12 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     try:
         key = conn.get_all_key_pairs(keynames=[key_name])[0]
         group = conn.get_all_security_groups(groupnames=[group_name])[0]
-    except conn.ResponseError, e:
+    except conn.ResponseError:
         setup_aws_account()
 
     reservation = conn.run_instances(ami,
-        key_name=key_name,
-        security_groups=[group_name],
+        key_name=key.name,
+        security_groups=[group],
         instance_type=instance_type)
 
     instance = reservation.instances[0]
@@ -252,13 +244,13 @@ def create_ec2(name,key_extension='.pem',cidr='0.0.0.0/0',tag=None,user_data=Non
     print(_green("Instance state: %s" % instance.state))
     print(_green("Public dns: %s" % instance.public_dns_name))
 
-    addToSshConfig(name=name,dns=instance.public_dns_name)
+    addtosshconfig(name=name, dns=instance.public_dns_name)
 
     if not os.path.isdir("fab_hosts"):
         os.mkdir('fab_hosts')
-    f = open("fab_hosts/{}.txt".format(name), "w")
-    f.write(instance.public_dns_name)
-    f.close()
+    hostfile = open("fab_hosts/{}.txt".format(name), "w")
+    hostfile.write(instance.public_dns_name)
+    hostfile.close()
     return instance.public_dns_name
 
 @task
@@ -269,7 +261,7 @@ def terminate_ec2(name):
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     print(_green("Searching for {}...".format(name)))
 
@@ -277,15 +269,15 @@ def terminate_ec2(name):
     filters = {"tag:Name": name}
     for reservation in conn.get_all_instances(filters=filters):
         for instance in reservation.instances:
-            if "terminated" in str(instance._state):
+            if "terminated" in str(instance.state):
                 print "instance {} is already terminated".format(instance.id)
             else:
                 if raw_input("shall we terminate {name}? (y/n) ".format(name=name)).lower() == "y":
                     print(_yellow("Terminating {}".format(instance.id)))
                     conn.terminate_instances(instance_ids=[instance.id])
                     print(_yellow("Terminated"))
-                    removeFromSshConfig(instance.public_dns_name)
-                    removeDnsEntries(name)
+                    removefromsshconfig(instance.public_dns_name)
+                    remove_dns_entries(name)
 
 @task
 def terminate_rds(name):
@@ -295,7 +287,7 @@ def terminate_rds(name):
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     print(_green("Started terminating {}...".format(name)))
 
@@ -317,14 +309,14 @@ def getec2instances():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     # Get a list of instance IDs for the ELB.
     instances = []
     conn = connect_to_elb()
     for elb in conn.get_all_load_balancers():
         instances.extend(elb.instances)
- 
+
     # Get the instance IDs for the reservations.
     conn = connect_to_ec2()
     reservations = conn.get_all_instances([i.id for i in instances])
@@ -332,26 +324,26 @@ def getec2instances():
     for reservation in reservations:
         for i in reservation.instances:
             instance_ids.append(i.id)
- 
+
     # Get the public CNAMES for those instances.
-    taggedHosts = []
+    taggedhosts = []
     for host in conn.get_all_instances(instance_ids):
-        taggedHosts.extend([[i.public_dns_name, i.tags['Name'],i.instance_type] for i in host.instances if i.state=='running'])
-        taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
-    taggedHosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
-    
-    if not any(taggedHosts):
+        taggedhosts.extend([[i.public_dns_name, i.tags['Name'], i.instance_type] for i in host.instances if i.state=='running'])
+        taggedhosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+    taggedhosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+
+    if not any(taggedhosts):
         print "no hosts found"
     else:
         if not os.path.isdir("fab_hosts"):
             os.mkdir('fab_hosts')
-        for taggedHost in taggedHosts:
-            with open("fab_hosts/{}.txt".format(taggedHost[1]), "w") as fabHostFile:
-                fabHostFile.write(taggedHost[0])
-            print taggedHost[1] + " " + taggedHost[0]
+        for taggedhost in taggedhosts:
+            with open("fab_hosts/{}.txt".format(taggedhost[1]), "w") as fabhostfile:
+                fabhostfile.write(taggedhost[0])
+            print taggedhost[1] + " " + taggedhost[0]
 
-    for taggedHost in taggedHosts:
-        addToSshConfig(name=taggedHost[1],dns=taggedHost[0])
+    for taggedhost in taggedhosts:
+        addtosshconfig(name=taggedhost[1], dns=taggedhost[0])
 
 @task
 def getrdsinstances():
@@ -361,37 +353,37 @@ def getrdsinstances():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     conn = connect_to_rds()
     # Get the public CNAMES for all instances.
-    rdsInstances = []
-    for rdsInstance in conn.get_all_dbinstances():
-        if rdsInstance.status=='available':
-            rdsInstances.extend([rdsInstance])
-    rdsInstances.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
- 
-    if not any(rdsInstances):
+    rdsinstances = []
+    for rdsinstance in conn.get_all_dbinstances():
+        if rdsinstance.status == 'available':
+            rdsinstances.extend([rdsinstance])
+    rdsinstances.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+
+    if not any(rdsinstances):
         print "no rds instances found"
     else:
-        for rdsInstance in rdsInstances:
-            print rdsInstance.id
-    return rdsInstances
+        for rdsinstance in rdsinstances:
+            print rdsinstance.id
+    return rdsinstances
 
 @task
-def bootstrap(name,app_type='app'):
+def bootstrap(name, app_type='app'):
     """
     Bootstrap the specified server.
 
     :param name: The name of the node to be bootstrapped
     :return:
     """
-    setHostFromName(name)
+    sethostfromname(name)
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
-    
+        app_settings = loadsettings(app_type)
+
     print(_green("--BOOTSTRAPPING {}--".format(name)))
     package_list = ['language-pack-en', 'aptitude', 'git-core', 'mysql-client', 'ntpdate']
     if app_type == 'blog':
@@ -423,71 +415,72 @@ def bootstrap(name,app_type='app'):
         install_mysql_server(name)
 
 @task
-def deployapp(name,app_type='app'):
+def deployapp(name, app_type='app'):
     """
     Deploy app_name module to instance with name alias
     """
-    setHostFromName(name)
+    sethostfromname(name)
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     if (app_type == 'expa_core') or (app_type == 'core') or (app_type == 'expacore'):
         release = time.strftime('%Y%m%d%H%M%S')
     else:
         release = collect()
 
-    deploypath = app_settings["PROJECTPATH"] + '/releases/' + release    
+    deploypath = app_settings["PROJECTPATH"] + '/releases/' + release
 
-    try:
-        env.user
-        env.group
-    except NameError:
+    if env.host_string != '127.0.0.1':
         env.user = 'ubuntu'
         env.group = 'ubuntu'
-
-    print(_green("--DEPLOYING {app_type} to {name}--".format(name=name,app_type=app_type)))      
+    
+    print(_green("--DEPLOYING {app_type} to {name}--".format(name=name, app_type=app_type)))
     try:
         env.development
-    except NameError:
+    except AttributeError:
         if app_settings["DATABASE_HOST"] == 'localhost':
-            createlocaldb(name,app_type)
+            createlocaldb(app_type)
 
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
-    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"],user=env.user,group=env.group))
+    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
         with cd('{path}'.format(path=deploypath)):
-            put('./keys/deploy', '~/.ssh/id_rsa',mode=600)
+            put('./keys/deploy', '~/.ssh/id_rsa', mode=600)
+            run('echo "StrictHostKeyChecking no" >> ~/.ssh/config', quiet=True)
             run('chmod 600 ~/.ssh/id_rsa')
             run('git clone git@github.com:{github_user}/core.git .'.format(github_user=app_settings["GITHUB_USER"]))
             run('mkdir config')
             put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
     else:
-        upload_tar_from_local(release,app_type)
+        upload_tar_from_local(release, app_type)
 
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
         try:
             env.development
-        except NameError:
-            run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"],release=release))
+        except AttributeError:
+            run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"], release=release))
             with settings(hide('running', 'stdout'), warn_only=True):
                 run("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
                     -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
                     -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
-                    releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"],dbuser=app_settings["DATABASE_USER"],
-                                                                                                                dbpass=app_settings["DATABASE_PASS"],dbhost=app_settings["DATABASE_HOST"],
-                                                                                                                dbport=app_settings["DATABASE_PORT"],djangosecretkey=app_settings["DJANGOSECRETKEY"],
-                                                                                                                domain_name=app_settings["DOMAIN_NAME"],release=release,app_name=app_settings["APP_NAME"],
-                                                                                                                projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
+                    releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"], dbuser=app_settings["DATABASE_USER"],
+                                                                                                                dbpass=app_settings["DATABASE_PASS"], dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                dbport=app_settings["DATABASE_PORT"], djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                                                                domain_name=app_settings["DOMAIN_NAME"], release=release, app_name=app_settings["APP_NAME"],
+                                                                                                                projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
 
-    symlink_current_release(release,app_type)
-    install_requirements(release,app_type)
+    symlink_current_release(release, app_type)
+    install_requirements(release, app_type)
+    if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
+        with cd('{}'.format(app_settings["PROJECTPATH"])):
+            run('./bin/python ./releases/{release}/expa_core/manage.py collectstatic --noinput'.format(release=release))
     migrate(app_type)
     try:
         env.development
-    except NameError:
+    except AttributeError:
         install_web(app_type)
         restart(name)
         setup_route53_dns(name, app_type)
@@ -497,20 +490,20 @@ def deploywp(name):
     """
     Deploy Wordpress on named ec2 instance. Requires create_rds and bootstrap to be called first with the 'blog' app type
     """
-    setHostFromName(name)
+    sethostfromname(name)
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings('blog')
+        app_settings = loadsettings('blog')
 
     if app_settings["DATABASE_HOST"] == 'localhost':
-        createlocaldb(name,'blog')
-    
+        createlocaldb('blog')
+
     sudo('mkdir -p {path} {path}/tmp/ {path}/pid/ {path}/sock/; chown ubuntu:ubuntu {path}'.format(path=app_settings["PROJECTPATH"]))
     put('./config/nginx.conf', '/etc/nginx/nginx.conf', use_sudo=True)
     put('./config/blog-nginx.conf', '/etc/nginx/sites-enabled/blog-nginx.conf', use_sudo=True)
     with settings(hide('running', 'stdout')):
-        sudo('sed -i -e "s:<PROJECTPATH>:{projectpath}:g" -e "s:<HOST_NAME>:{hostname}:g" /etc/nginx/sites-enabled/blog-nginx.conf'.format(projectpath=app_settings["PROJECTPATH"],hostname=app_settings["HOST_NAME"]))
+        sudo('sed -i -e "s:<PROJECTPATH>:{projectpath}:g" -e "s:<HOST_NAME>:{hostname}:g" /etc/nginx/sites-enabled/blog-nginx.conf'.format(projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
         run('curl https://raw.github.com/wp-cli/wp-cli.github.com/master/installer.sh | bash')
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
@@ -532,27 +525,30 @@ def deploywp(name):
 
 @task
 def localdev():
+    """
+    Deploy core and skeleton app to local vagrant. For use with vagrant up and provided VagrantFile
+    """
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings('app')
+        app_settings = loadsettings('app')
 
     try:
         core_settings
     except NameError:
-        core_settings=loadSettings('core')
+        core_settings = loadsettings('core')
 
     app_settings["REQUIREMENTSFILE"] = 'local'
     core_settings["REQUIREMENTSFILE"] = 'local'
-    saveSettings(app_settings,'app_settings.json')
-    saveSettings(core_settings,'core_settings.json')
+    savesettings(app_settings,'app_settings.json')
+    savesettings(core_settings,'core_settings.json')
     env.user = 'vagrant'
     env.group = 'vagrant'
-    env.target="dev"
-    env.development='true'
+    env.target = 'dev'
+    env.development = 'true'
 
-    bootstrap(env.host_string) 
-    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"],user=env.user,group=env.group))
+    bootstrap(env.host_string)
+    sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
     install_requirements()
@@ -563,7 +559,7 @@ def restart(name):
     """
     Reload app server/nginx
     """
-    setHostFromName(name)
+    sethostfromname(name)
 
     with settings(hide('running'), warn_only=True):
         sudo('if [ -x /etc/init.d/php5-fpm ]; then if [ "$( /etc/init.d/php5-fpm status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/php5-fpm start ; else /etc/init.d/php5-fpm reload ; fi ; fi')
@@ -573,6 +569,9 @@ def restart(name):
 #----------HELPER FUNCTIONS-----------
 @contextmanager
 def _virtualenv():
+    """
+    Activate virtual environment
+    """
     with prefix(env.activate):
         yield
 
@@ -584,7 +583,7 @@ def connect_to_elb():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     return boto.connect_elb(aws_access_key_id=aws_cfg["aws_access_key_id"],
                             aws_secret_access_key=aws_cfg["aws_secret_access_key"])
@@ -597,7 +596,7 @@ def connect_to_ec2():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     return boto.ec2.connect_to_region(aws_cfg["region"],
                                       aws_access_key_id=aws_cfg["aws_access_key_id"],
@@ -611,7 +610,7 @@ def connect_to_rds():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     return boto.rds.connect_to_region(aws_cfg["region"],
                                       aws_access_key_id=aws_cfg["aws_access_key_id"],
@@ -624,25 +623,25 @@ def connect_to_r53():
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
- 
+        aws_cfg = load_aws_cfg()
+
     return boto.route53.connect_to_region('universal',
                                           aws_access_key_id=aws_cfg["aws_access_key_id"],
                                           aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
-def removeDnsEntries(name):
+def remove_dns_entries(name):
     """
     Remove route53 entries that point to ec2 instance with provided named alias
     """
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings()
+        app_settings = loadsettings()
 
     try:
         ec2host = open("fab_hosts/{}.txt".format(name)).readline().strip() + "."
@@ -666,19 +665,19 @@ def removeDnsEntries(name):
             print _yellow("...dropping address record " + _green(record.name) + "...")
             zone.delete_a(record.name)
 
-def setup_route53_dns(name,app_type='app'):
+def setup_route53_dns(name, app_type='app'):
     """
     Creates Route53 DNS entries for given ec2 instance and app_type
     """
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     try:
         app_settings
     except NameError:
-        app_settings = loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     try:
         ec2host = open("fab_hosts/{}.txt".format(name)).readline().strip() + "."
@@ -697,56 +696,54 @@ def setup_route53_dns(name,app_type='app'):
     else:
         print _yellow("zone " + _green(app_zone_name) + _yellow(" already exists. skipping creation"))
         zone = conn.get_zone(app_zone_name)
-    
+
     if app_type == 'app':
         # TODO: cleanup parser
         # ex: ec2-54-204-216-244.compute-1.amazonaws.com
         ec2ip = '.'.join(ec2host.split('.')[0].split('-')[1:5])
         try:
-            apex = zone.add_a(app_zone_name,ec2ip,ttl=300)
+            apex = zone.add_a(app_zone_name, ec2ip, ttl=300)
             while apex.status != 'INSYNC':
                 print _yellow("creation of A record: " + _green(app_zone_name + " " + ec2ip) + _yellow(" is ") + _red(apex.status))
                 apex.update()
                 time.sleep(10)
-            else:
-                print _green("creation of A record: " + app_zone_name + " is now " + apex.status)
-        except Exception as e:
-            if 'already exists' in e.message:
+            print _green("creation of A record: " + app_zone_name + " is now " + apex.status)
+        except Exception as error:
+            if 'already exists' in error.message:
                 print _yellow("address record " + _green(app_zone_name + " " + ec2ip) + _yellow(" already exists. skipping creation"))
             else:
                 raise
 
     try:
-        cname = zone.add_cname(app_host_name,ec2host,ttl=300,comment="expa " + app_type + " entry")
+        cname = zone.add_cname(app_host_name, ec2host, ttl=300, comment="expa " + app_type + " entry")
         while cname.status != 'INSYNC':
-            print _yellow("creation of cname: " + _green(app_host_name) + _yellow(" is ") + _red(cname.status))            
-            cname.update()            
+            print _yellow("creation of cname: " + _green(app_host_name) + _yellow(" is ") + _red(cname.status))
+            cname.update()
             time.sleep(10)
-        else:
-            print _green("creation of cname: " + app_host_name + " is now " + cname.status)            
-    except Exception as e:
-        if 'already exists' in e.message:
+        print _green("creation of cname: " + app_host_name + " is now " + cname.status)
+    except Exception as error:
+        if 'already exists' in error.message:
             print _yellow("cname record " + _green(app_host_name) + _yellow(" already exists. skipping creation"))
         else:
             raise
-        
-def loadAwsCfg():
+
+def load_aws_cfg():
     try:
-        aws_cfg = Config(open("aws.cfg"))
-        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],  
+        aws_cfg = Config(open('aws.cfg'))
+        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],
                                                            aws_cfg["key_name"] + ".pem"))
         return aws_cfg
-    except Exception as e:
-        print "aws.cfg not found. %s" %e
+    except Exception as error:
+        print "aws.cfg not found. %s" % error
         return 1
 
-def install_requirements(release=None,app_type='app'):
+def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
     # NOTE ... django requires a global install for some reason
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     if release is None:
         release = 'current'
@@ -755,7 +752,6 @@ def install_requirements(release=None,app_type='app'):
         # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
         run('./bin/pip install --upgrade distribute')
         # run('./bin/pip install --upgrade versiontools')
-        
         run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
                                                                                                     requirements_file=app_settings["REQUIREMENTSFILE"]))
 
@@ -764,9 +760,9 @@ def migrate(app_type):
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
-    with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"],app_name=app_settings["APP_NAME"])):
+    with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
             run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
@@ -780,7 +776,7 @@ def install_web(app_type='app'):
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
@@ -797,26 +793,26 @@ def install_web(app_type='app'):
         sudo('if [ ! -d /etc/uwsgi ]; then mkdir /etc/uwsgi ; fi')
         sudo('cp ./config/{app_type}-uwsgi.xml /etc/uwsgi/'.format(app_type=app_type))
         sudo('cp ./config/nginx.conf /etc/nginx/')
-        sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type,app_name=app_settings["APP_NAME"]))
+        sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 def install_mysql_server(name):
     """
     Install mysql server on named instance
     """
-    setHostFromName(name)
-    
+    sethostfromname(name)
+
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings()
+        app_settings = loadsettings()
 
     try:
         app_settings["LOCAL_MYSQL_PASS"]
     except KeyError:
         app_settings["LOCAL_MYSQL_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
-        saveSettings(app_settings, 'app_settings.json')
-        
+        savesettings(app_settings, 'app_settings.json')
+
     update_apt()
     install_package('debconf-utils')
     with settings(hide('running', 'stdout')):
@@ -844,56 +840,55 @@ def collect():
     local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
     return release
 
-def symlink_current_release(release,app_type):
+def symlink_current_release(release, app_type):
     "Symlink our current release"
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('rm releases/previous; mv releases/current releases/previous; ln -s {release} releases/current'.format(release=release))
 
-def upload_tar_from_local(release=None,app_type='app'):
+def upload_tar_from_local(release=None, app_type='app'):
     "Create an archive from the current Git master branch and upload it"
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings(app_type)
+        app_settings = loadsettings(app_type)
 
     if release is None:
         release = collect()
-    
-    run('mkdir -p {path}/releases/{release} {path}/packages'.format(path=app_settings["PROJECTPATH"],release=release))
-    put('{release}.tbz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"],release=release))
-    run('cd {path}/releases/{release} && tar xjf ../../packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"],release=release))
-    sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"],release=release))
+
+    run('mkdir -p {path}/releases/{release} {path}/packages'.format(path=app_settings["PROJECTPATH"], release=release))
+    put('{release}.tbz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"], release=release))
+    run('cd {path}/releases/{release} && tar xjf ../../packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"], release=release))
+    sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"], release=release))
     local('rm {release}.tbz'.format(release=release))
 
-def createlocaldb(name,app_type='app'):
+def createlocaldb(app_type='app'):
     """
     Create a local mysql db on named instance with given app settings.
     """
     try:
         app_settings
     except NameError:
-        app_settings=loadSettings()
+        app_settings = loadsettings()
 
     try:
         local_app_settings
     except NameError:
-        local_app_settings=loadSettings(app_type)
+        local_app_settings = loadsettings(app_type)
 
     try:
         with settings(hide('running','warnings')):
-            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
+            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"], dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
             sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],
                                                                                                                                                     dbname=local_app_settings["DATABASE_NAME"],
                                                                                                                                                     dbuser=local_app_settings["DATABASE_USER"],
                                                                                                                                                     dbpass=local_app_settings["DATABASE_PASS"]))
-    except Exception as e:
-        print e
-        pass
+    except Exception as error:
+        print error
 
 def install_package(name):
     """ install a package using APT """
@@ -916,24 +911,24 @@ def update_apt():
         sudo('apt-get update')
         print _green('[DONE]')
 
-def saveSettings(appSettingsJson,settingsFile):
-    #print _red("saving settings to: " + settingsFile)
-    with open(settingsFile, "w") as settingsFile:
-        settingsFile.write(json.dumps(appSettingsJson,indent=4,separators=(',', ': '),sort_keys=True))
+def savesettings(appsettingsjson, settingsfile):
+    #print _red("saving settings to: " + settingsfile)
+    with open(settingsfile, "w") as settingsfile:
+        settingsfile.write(json.dumps(appsettingsjson, indent=4, separators=(',', ': '), sort_keys=True))
 
-def loadSettings(app_type='app'):
-    settingsFile = app_type + '_settings.json'
-    
+def loadsettings(app_type='app'):
+    settingsfile = app_type + '_settings.json'
+
     try:
-        with open(settingsFile, "r") as settingsFile:
-            settings = json.load(settingsFile)
-    except Exception as e:
-        settings = generateDefaultSettings(app_type)
-        saveSettings(settings,settingsFile)
-    return settings
+        with open(settingsfile, "r") as settingsfile:
+            settingsjson = json.load(settingsfile)
+    except Exception:
+        settingsjson = generatedefaultsettings(app_type)
+        savesettings(settingsjson, settingsfile)
+    return settingsjson
 
-def generateDefaultSettings(settingsType):
-    if (settingsType == 'expa_core') or (settingsType == 'core') or (settingsType == 'expacore') :
+def generatedefaultsettings(settingstype):
+    if (settingstype == 'expa_core') or (settingstype == 'core') or (settingstype == 'expacore') :
         app_settings = {"DATABASE_USER": "expacore",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
@@ -950,7 +945,7 @@ def generateDefaultSettings(settingsType):
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
 
-    elif settingsType == 'blog':
+    elif settingstype == 'blog':
         app_settings = {"DATABASE_USER": "{{project_name}}_blog",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
                         "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
@@ -984,14 +979,14 @@ def generateDefaultSettings(settingsType):
                         }
     return app_settings
 
-def addToSshConfig(name,dns):
+def addtosshconfig(name, dns):
     """
     Add provided hostname and dns to ssh_config with config template below
     """
     try:
         aws_cfg
     except NameError:
-        aws_cfg=loadAwsCfg()
+        aws_cfg = load_aws_cfg()
 
     ssh_slug = """
     Host {name}
@@ -1000,19 +995,18 @@ def addToSshConfig(name,dns):
     User ubuntu
     IdentityFile {key_file_path}
     ForwardAgent yes
-    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]),aws_cfg["key_name"] + ".pem"))
+    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]), aws_cfg["key_name"] + ".pem"))
     if os.name == 'posix':
         try:
             with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
                 ssh_config.seek(0)
                 if not dns in ssh_config.read():
-                    ssh_config.seek(0,2)
+                    ssh_config.seek(0, 2)
                     ssh_config.write("\n{}\n".format(ssh_slug))
-        except Exception as e:
-            print e
-            pass
+        except Exception as error:
+            print error
 
-def removeFromSshConfig(dns):
+def removefromsshconfig(dns):
     """
     Remove ssh_slug containing provided name and dns from ssh_config
     """
@@ -1020,22 +1014,22 @@ def removeFromSshConfig(dns):
         try:
             with open(os.path.expanduser("~/.ssh/config"), "r+") as ssh_config:
                 lines = ssh_config.readlines()
-                blockstart = substringIndex(lines, dns)
-                blockend = substringIndex(lines, "ForwardAgent yes", blockstart)
+                blockstart = substringindex(lines, dns)
+                blockend = substringindex(lines, "ForwardAgent yes", blockstart)
                 del(lines[blockstart-2:blockend+2])
                 ssh_config.seek(0)
                 ssh_config.write(''.join(lines))
                 ssh_config.truncate()
-        except Exception as e:
-            print e
+        except Exception as error:
+            print error
 
-def setHostFromName(name):
+def sethostfromname(name):
     if env.host_string is None:
-        f = open("fab_hosts/{}.txt".format(name))
-        env.host_string = "ubuntu@{}".format(f.readline().strip())
+        fabhostfile = open("fab_hosts/{}.txt".format(name))
+        env.host_string = "ubuntu@{}".format(fabhostfile.readline().strip())
 
-def substringIndex(the_list, substring, offset=0):
-    for i, s in enumerate(the_list):
-        if (substring in s) and ( i >= offset):
-            return i
+def substringindex(the_list, substring, offset=0):
+    for sindex, sstring in enumerate(the_list):
+        if (substring in sstring) and ( sindex >= offset):
+            return sindex
     return -1
