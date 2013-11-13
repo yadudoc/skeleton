@@ -517,6 +517,7 @@ def deploywp(name):
     except NameError:
         app_settings = loadsettings('blog')
 
+    print(_green("--DEPLOYING wordpress to {name}--".format(name=name)))
     if app_settings["DATABASE_HOST"] == 'localhost':
         createlocaldb('blog')
 
