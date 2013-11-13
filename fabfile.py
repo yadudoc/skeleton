@@ -458,7 +458,9 @@ def deployapp(name,app_type='app'):
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"],user=env.user,group=env.group))
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
         with cd('{path}'.format(path=deploypath)):
-            run('git clone https://github.com/expa/core.git .')
+            put('./keys/deploy', '~/.ssh/id_rsa',mode=600)
+            run('chmod 600 ~/.ssh/id_rsa')
+            run('git clone git@github.com:{github_user}/core.git .'.format(github_user=app_settings["GITHUB_USER"]))
             run('mkdir config')
             put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
     else:
@@ -944,6 +946,7 @@ def generateDefaultSettings(settingsType):
                         "DOMAIN_NAME" : "demo.expa.com",
                         "HOST_NAME" : "core.demo.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
+                        "GITHUB_USER" : "mhexpa"
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
 

@@ -17,6 +17,13 @@ To use this project follow these steps:
 *note: these instructions show creation of a project called "testme".  You
 should replace this name with the actual name of your project.*
 
+Prerequisites
+=============
+#. Request addition as collaborator for expa/core github.com repo
+#. Fork expa/core github.com repo
+#. Create ssh key for use as deploy key (ssh-keygen -b 2048 -t rsa -f deploy -q -N "")
+#. Upload contents to github.com of deploy.pub to deploy keys section of your forked repo
+
 Working Environment
 ===================
 
@@ -48,6 +55,7 @@ To create a new Django project called '**testme**' using django-twoscoops-projec
 
     $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
     $ pip install -r requirements/local.txt
+    $ copy deploy key into ./keys
 
 Vagrant + VirtualBox
 ====================
@@ -58,6 +66,15 @@ Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://
     $ vagrant plugin install vagrant-vbguest
     $ cd testme
     $ vagrant up
+
+Startup expa core
+=================
+To start expa core, use vagrant to enter the VM and django to start the server::
+
+    $ vagrant ssh
+    $ cd /mnt/ym/expacore
+    $ source bin/activate
+    $ python ./releases/current/expa_core/manage.py runserver 0.0.0.0:8001
 
 Startup your app
 ====================
