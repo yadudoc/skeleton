@@ -1,4 +1,5 @@
 # Test dependencies go here.
 -r base.txt
-coverage==3.6					# BSD
+coverage==3.7					# BSD
 django-discover-runner==0.4		# BSD
+pylint                          # GPL

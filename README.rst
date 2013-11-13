@@ -55,7 +55,7 @@ To create a new Django project called '**testme**' using django-twoscoops-projec
 
     $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
     $ pip install -r requirements/local.txt
-    $ copy deploy key into ./keys
+    $ copy deploy key into ./testme/keys
 
 Vagrant + VirtualBox
 ====================

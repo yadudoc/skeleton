@@ -946,7 +946,7 @@ def generateDefaultSettings(settingsType):
                         "DOMAIN_NAME" : "demo.expa.com",
                         "HOST_NAME" : "core.demo.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
-                        "GITHUB_USER" : "mhexpa"
+                        "GITHUB_USER" : "mhexpa",
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
 
