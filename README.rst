@@ -23,6 +23,8 @@ Prerequisites
 #. Fork expa/core github.com repo
 #. Create ssh key for use as deploy key (ssh-keygen -b 2048 -t rsa -f deploy -q -N "")
 #. Upload contents to github.com of deploy.pub to deploy keys section of your forked repo
+#. ssh-add your private key to your local ssh-agent
+#. Ensure agent forwarding is on (ref: https://help.github.com/articles/using-ssh-agent-forwarding)
 
 Working Environment
 ===================
@@ -55,7 +57,6 @@ To create a new Django project called '**testme**' using django-twoscoops-projec
 
     $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
     $ pip install -r requirements/local.txt
-    $ copy deploy key into ./testme/keys
 
 Vagrant + VirtualBox
 ====================
