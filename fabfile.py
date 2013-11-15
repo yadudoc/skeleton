@@ -427,7 +427,7 @@ def bootstrap(name, app_type):
         sudo('aptitude -y build-dep python-psycopg2')
     install_package_fast('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
-        install_localdb_server(name, app_type, app_settings["LOCAL_DB_TYPE"])
+        install_localdb_server(name, app_settings["LOCAL_DB_TYPE"])
 
 @task
 def deployapp(name, app_type):
@@ -838,7 +838,7 @@ def install_web(app_type):
         sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
-def install_localdb_server(name, app_type, db_type):
+def install_localdb_server(name, db_type):
     """
     Install db server on named instance of db_type
     """
@@ -847,7 +847,7 @@ def install_localdb_server(name, app_type, db_type):
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings(app_type)
+        app_settings = loadsettings('app')
 
     try:
         app_settings["LOCAL_DB_SUPERUSER_PASS"]
