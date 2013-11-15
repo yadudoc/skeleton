@@ -2,6 +2,6 @@
 -r base.txt
 coverage==3.6					# BSD
 django-discover-runner==0.4 	# BSD
-django-debug-toolbar==0.9.4		# BSD
+django-debug-toolbar==0.11.0 # BSD
 Sphinx==1.2b1					# BSD
 pylint                          # GPL
