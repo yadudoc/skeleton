@@ -860,6 +860,7 @@ def install_localdb_server(name, app_type, db_type):
             sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
             sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
         install_package_fast('mysql-server-5.5')
+        sudo('/etc/init.d/mysql restart')
     elif db_type == 'postgresql':
         # TODO: deal with whiptail on postgres
         package_list = [ 'postgresql-9.3', 'postgresql-contrib-9.3', 'postgresql-server-dev-9.3', 'postgis', 'postgresql-9.3-postgis', 'postgresql-9.3-postgis-2.1-scripts' ]
@@ -867,6 +868,7 @@ def install_localdb_server(name, app_type, db_type):
         with(settings(hide('running'))):
             put('./config/pg_hba.conf', '/etc/postgresql/9.3/main/pg_hba.conf', use_sudo=True)
         sudo('/etc/init.d/postgresql restart')
+    time.sleep(15)
 
 def start_webservers():
     sudo('/etc/init.d/nginx start')
