@@ -104,7 +104,7 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name, rdstype='app'):
+def create_rds(name, rdstype):
     """
     Launch an RDS instance with name provided
 
@@ -288,7 +288,7 @@ def terminate_ec2(name):
                     conn.terminate_instances(instance_ids=[instance.id])
                     print(_yellow("Terminated"))
                     removefromsshconfig(instance.public_dns_name)
-                    remove_dns_entries(name)
+                    remove_dns_entries(name, 'app')
 
 @task
 def terminate_rds(name):
@@ -427,7 +427,7 @@ def bootstrap(name, app_type):
         sudo('aptitude -y build-dep python-psycopg2')
     install_package_fast('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
-        install_localdb_server(name, app_settings["LOCAL_DB_TYPE"])
+        install_localdb_server(name, app_type, app_settings["LOCAL_DB_TYPE"])
 
 @task
 def deployapp(name, app_type):
@@ -666,7 +666,7 @@ def connect_to_r53():
                                           aws_access_key_id=aws_cfg["aws_access_key_id"],
                                           aws_secret_access_key=aws_cfg["aws_secret_access_key"])
 
-def remove_dns_entries(name):
+def remove_dns_entries(name, app_type):
     """
     Remove route53 entries that point to ec2 instance with provided named alias
     """
@@ -678,7 +678,7 @@ def remove_dns_entries(name):
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings()
+        app_settings = loadsettings(app_type)
 
     try:
         ec2host = open("fab_hosts/{}.txt".format(name)).readline().strip() + "."
@@ -812,7 +812,7 @@ def migrate(app_type):
             run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
             #run('../../../bin/python manage.py loaddata app/fixtures/')
 
-def install_web(app_type='app'):
+def install_web(app_type):
     "Install web serving components"
 
     try:
@@ -838,7 +838,7 @@ def install_web(app_type='app'):
         sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
-def install_localdb_server(name, db_type):
+def install_localdb_server(name, app_type, db_type):
     """
     Install db server on named instance of db_type
     """
@@ -847,7 +847,7 @@ def install_localdb_server(name, db_type):
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings()
+        app_settings = loadsettings(app_type)
 
     try:
         app_settings["LOCAL_DB_SUPERUSER_PASS"]
@@ -872,7 +872,7 @@ def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
 
-def collectremote(name, app_type='app', release=None):
+def collectremote(name, app_type, release=None):
     """
     Run django collect static on named instance for app_type
     """
@@ -923,14 +923,14 @@ def upload_tar_from_local(release=None, app_type='app'):
     sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"], release=release))
     local('rm {release}.tbz'.format(release=release))
 
-def createlocaldb(app_type='app', db_type='mysql'):
+def createlocaldb(app_type, db_type='mysql'):
     """
     Create a local mysql db on named instance with given app settings.
     """
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings()
+        app_settings = loadsettings('app')
 
     try:
         local_app_settings
@@ -981,7 +981,7 @@ def savesettings(appsettingsjson, settingsfile):
     with open(settingsfile, "w") as settingsfile:
         settingsfile.write(json.dumps(appsettingsjson, indent=4, separators=(',', ': '), sort_keys=True))
 
-def loadsettings(app_type='app'):
+def loadsettings(app_type):
     settingsfile = app_type + '_settings.json'
 
     try:
