@@ -405,27 +405,18 @@ def bootstrap(name, app_type):
     update_apt()
     install_package('debconf-utils software-properties-common python-software-properties')
     with settings(hide('running', 'stdout')):
-        sudo('add-apt-repository -y ppa:apt-fast/stable')
-        sudo('echo apt-fast apt-fast/aptmanager select apt-get | debconf-set-selections')
-        sudo('echo apt-fast apt-fast/downloadcmd    string  aria2c -c -j ${_MAXNUM} -i ${DLLIST} --connect-timeout=600 --timeout=600 -m0 | debconf-set-selections')
-        sudo('echo apt-fast apt-fast/dlflag boolean false | debconf-set-selections')
-        sudo('echo apt-fast apt-fast/tmpdownloaddir string  /var/cache/apt/archives/apt-fast| debconf-set-selections')
-        sudo('echo apt-fast apt-fast/maxdownloads   string  10| debconf-set-selections')
-        sudo('echo apt-fast apt-fast/downloader select  aria2c| debconf-set-selections')
-        sudo('echo apt-fast apt-fast/tmpdownloadlist    string  /tmp/apt-fast.list| debconf-set-selections')
-        sudo('echo apt-fast apt-fast/aptcache   string  /var/cache/apt/archives| debconf-set-selections')
         sudo('echo "deb http://us.archive.ubuntu.com/ubuntu/ precise main universe multiverse"  > /etc/apt/sources.list.d/ubuntu-multiverse.list')
         sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main"  > /etc/apt/sources.list.d/postgresql.list')
         sudo('wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -')
     update_apt()
     install_package('apt-fast')
     print _blue('Installing packages. please wait...')
-    install_package_fast(' '.join(package_list))
+    install_package(' '.join(package_list))
 
     with settings(hide('stdout')):
         sudo('aptitude -y build-dep python-mysqldb')
         sudo('aptitude -y build-dep python-psycopg2')
-    install_package_fast('python-mysqldb')
+    install_package('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
         install_localdb_server(name, app_settings["LOCAL_DB_TYPE"])
 
@@ -822,7 +813,7 @@ def install_web(app_type):
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
-    install_package_fast('nginx')
+    install_package('nginx')
     if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
         put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
         put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
@@ -859,12 +850,12 @@ def install_localdb_server(name, db_type):
         with settings(hide('running', 'stdout')):
             sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
             sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
-        install_package_fast('mysql-server-5.5')
+        install_package('mysql-server-5.5')
         sudo('/etc/init.d/mysql restart')
     elif db_type == 'postgresql':
         # TODO: deal with whiptail on postgres
         package_list = [ 'postgresql-9.3', 'postgresql-contrib-9.3', 'postgresql-server-dev-9.3', 'postgis', 'postgresql-9.3-postgis', 'postgresql-9.3-postgis-2.1-scripts' ]
-        install_package_fast(' '.join(package_list))
+        install_package(' '.join(package_list))
         with(settings(hide('running'))):
             put('./config/pg_hba.conf', '/etc/postgresql/9.3/main/pg_hba.conf', use_sudo=True)
         sudo('/etc/init.d/postgresql restart')
@@ -961,15 +952,12 @@ def install_package(name):
     """ install a package using APT """
     with settings(hide('running', 'stdout'), warn_only=True):
         print _yellow('Installing package %s... ' % name),
-        sudo('apt-get -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
-
-def install_package_fast(name):
-    """ install a package using APT """
-    with settings(hide('running', 'stdout'), warn_only=True):
-        print _yellow('Installing package %s... ' % name),
-        sudo('apt-fast -qq -y --force-yes install %s' % name)
-        print _green('[DONE]')
+        result = sudo('apt-get -qq -y --force-yes install %s' % name)
+        if result.return_code != 0:
+            print "apt-get failed: " + result
+            raise SystemExit()
+        else:
+            print _green('[DONE]')
 
 def update_apt():
     """ run apt-get update """
