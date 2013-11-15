@@ -26,6 +26,7 @@ django_deployment_env/*
 *#
 *.sublime-project
 aws.cfg
+git.cfg
 fab_hosts/*
 *.sublime-workspace
 settings.json

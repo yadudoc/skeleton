@@ -166,9 +166,8 @@ def create_rds(name, rdstype='app'):
 def create_ec2(name, tag=None, ami=None):
 
     """
-    Launch an instance and wait for it to start running.
-    Returns a tuple consisting of the Instance object and the CmdShell
-    object, if request, or None.
+    Launch an instance and wait until we can connect to it.
+    Returns the public dns name of the instance we created.
 
     ami        The ID of the Amazon Machine Image that this instance will
                be based on.  Default is a 64-bit Amazon Linux EBS image.
@@ -383,7 +382,7 @@ def getrdsinstances():
     return rdsinstances
 
 @task
-def bootstrap(name, app_type='app'):
+def bootstrap(name, app_type):
     """
     Bootstrap the specified server.
 
@@ -415,6 +414,9 @@ def bootstrap(name, app_type='app'):
         sudo('echo apt-fast apt-fast/downloader select  aria2c| debconf-set-selections')
         sudo('echo apt-fast apt-fast/tmpdownloadlist    string  /tmp/apt-fast.list| debconf-set-selections')
         sudo('echo apt-fast apt-fast/aptcache   string  /var/cache/apt/archives| debconf-set-selections')
+        sudo('echo "deb http://us.archive.ubuntu.com/ubuntu/ precise main universe multiverse"  > /etc/apt/sources.list.d/ubuntu-multiverse.list')
+        sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main"  > /etc/apt/sources.list.d/postgresql.list')
+        sudo('wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -')
     update_apt()
     install_package('apt-fast')
     print _blue('Installing packages. please wait...')
@@ -422,25 +424,31 @@ def bootstrap(name, app_type='app'):
 
     with settings(hide('stdout')):
         sudo('aptitude -y build-dep python-mysqldb')
+        sudo('aptitude -y build-dep python-psycopg2')
     install_package_fast('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
-        install_mysql_server(name)
+        install_localdb_server(name, app_settings["LOCAL_DB_TYPE"])
 
 @task
-def deployapp(name, app_type='app'):
+def deployapp(name, app_type):
     """
     Deploy app_name module to instance with name alias
     """
     sethostfromname(name)
     try:
+        git_cfg
+    except NameError:
+        git_cfg = load_git_cfg()
+
+    try:
         app_settings
     except NameError:
         app_settings = loadsettings(app_type)
 
-    if (app_type == 'expa_core') or (app_type == 'core') or (app_type == 'expacore'):
+    if app_type in ('expa_core', 'core', 'expacore', 'expa_gis', 'gis'):
         release = time.strftime('%Y%m%d%H%M%S')
     else:
-        release = collect()
+        release = collectlocal()
 
     deploypath = app_settings["PROJECTPATH"] + '/releases/' + release
 
@@ -453,16 +461,16 @@ def deployapp(name, app_type='app'):
         env.development
     except AttributeError:
         if app_settings["DATABASE_HOST"] == 'localhost':
-            createlocaldb(app_type)
+            createlocaldb(app_type, app_settings["LOCAL_DB_TYPE"])
 
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
-    if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
+    if app_settings["APP_NAME"] in ('expa_core', 'expa_gis'):
         with cd('{path}'.format(path=deploypath)):
-            put('./keys/deploy', '~/.ssh/id_rsa', mode=600)
             run('echo "StrictHostKeyChecking no" >> ~/.ssh/config', quiet=True)
-            run('chmod 600 ~/.ssh/id_rsa')
-            run('git clone git@github.com:{github_user}/core.git .'.format(github_user=app_settings["GITHUB_USER"]))
+            put('{key_dir}/{key}'.format(key_dir=git_cfg["key_dir"], key=git_cfg[app_type+"_deploy_key"]), '~/.ssh/id_rsa', mode=0600)
+            run('git clone git@github.com:/{github_user}/{github_repo}.git .'.format(github_user=git_cfg["user_name"], github_repo=app_type))
+            run('rm ~/.ssh/id_rsa')
             run('mkdir config')
             put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
     else:
@@ -486,16 +494,16 @@ def deployapp(name, app_type='app'):
 
     symlink_current_release(release, app_type)
     install_requirements(release, app_type)
-    if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore'):
+    if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore', 'expa_gis'):
         with cd('{}'.format(app_settings["PROJECTPATH"])):
-            run('./bin/python ./releases/{release}/expa_core/manage.py collectstatic --noinput'.format(release=release))
+            collectremote(name, app_type, release)
             migrate(app_type)
             with settings(hide('running')):
-                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{coreadmin}\', \'{coreadminemail}\', \'{coreadminpass}\')" \
-                    | ./bin/python ./releases/{release}/expa_core/manage.py shell'.format(coreadmin=app_settings["COREADMIN_USER"],
-                                                                                          coreadminemail=app_settings["COREADMIN_EMAIL"],
-                                                                                          coreadminpass=app_settings["COREADMIN_PASS"],
-                                                                                          release=release))
+                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{admin}\', \'{adminemail}\', \'{adminpass}\')" \
+                    | ./bin/python ./releases/{release}/{app_name}/manage.py shell'.format(admin=app_settings["ADMIN_USER"],
+                                                                                          adminemail=app_settings["ADMIN_EMAIL"],
+                                                                                          adminpass=app_settings["ADMIN_PASS"],
+                                                                                          release=release, app_name=app_settings["APP_NAME"]))
                 
     else:
         migrate(app_type)
@@ -560,8 +568,14 @@ def localdev():
     except NameError:
         core_settings = loadsettings('core')
 
+    try:
+        gis_settings
+    except NameError:
+        gis_settings = loadsettings('core')
+
     app_settings["REQUIREMENTSFILE"] = 'local'
     core_settings["REQUIREMENTSFILE"] = 'local'
+    gis_settings["REQUIREMENTSFILE"] = 'local'
     savesettings(app_settings,'app_settings.json')
     savesettings(core_settings,'core_settings.json')
     env.user = 'vagrant'
@@ -569,12 +583,13 @@ def localdev():
     env.target = 'dev'
     env.development = 'true'
 
-    bootstrap(env.host_string)
+    bootstrap(env.host_string,'app')
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
     install_requirements()
     deployapp(env.host_string, 'core')
+    deployapp(env.host_string, 'gis')
 
 @task
 def restart(name):
@@ -687,7 +702,7 @@ def remove_dns_entries(name):
             print _yellow("...dropping address record " + _green(record.name) + "...")
             zone.delete_a(record.name)
 
-def setup_route53_dns(name, app_type='app'):
+def setup_route53_dns(name, app_type):
     """
     Creates Route53 DNS entries for given ec2 instance and app_type
     """
@@ -759,9 +774,16 @@ def load_aws_cfg():
         print "aws.cfg not found. %s" % error
         return 1
 
+def load_git_cfg():
+    try:
+        git_cfg = Config(open('git.cfg'))
+        return git_cfg
+    except Exception as error:
+        print "git.cfg not found. %s" % error
+        return 1
+
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
-    # NOTE ... django requires a global install for some reason
     try:
         app_settings
     except NameError:
@@ -771,9 +793,7 @@ def install_requirements(release=None, app_type='app'):
         release = 'current'
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
-        # NOTE - there is a weird ass bug with distribute==8 that blows up all setup.py develop installs for eggs from git repos
         run('./bin/pip install --upgrade distribute')
-        # run('./bin/pip install --upgrade versiontools')
         run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
                                                                                                     requirements_file=app_settings["REQUIREMENTSFILE"]))
 
@@ -802,7 +822,7 @@ def install_web(app_type='app'):
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
-    install_package('nginx')
+    install_package_fast('nginx')
     if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
         put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
         put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
@@ -818,9 +838,9 @@ def install_web(app_type='app'):
         sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
     sudo('chmod 755 /etc/init.d/uwsgi')
 
-def install_mysql_server(name):
+def install_localdb_server(name, db_type):
     """
-    Install mysql server on named instance
+    Install db server on named instance of db_type
     """
     sethostfromname(name)
 
@@ -830,24 +850,42 @@ def install_mysql_server(name):
         app_settings = loadsettings()
 
     try:
-        app_settings["LOCAL_MYSQL_PASS"]
+        app_settings["LOCAL_DB_SUPERUSER_PASS"]
     except KeyError:
-        app_settings["LOCAL_MYSQL_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
+        app_settings["LOCAL_DB_SUPERUSER_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
         savesettings(app_settings, 'app_settings.json')
 
-    update_apt()
-    install_package('debconf-utils')
-    with settings(hide('running', 'stdout')):
-        sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
-        sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_MYSQL_PASS"]))
-
-    install_package('mysql-server-5.5')
+    if db_type == 'mysql':
+        with settings(hide('running', 'stdout')):
+            sudo('echo mysql-server-5.5 mysql-server/root_password password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
+            sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
+        install_package_fast('mysql-server-5.5')
+    elif db_type == 'postgresql':
+        # TODO: deal with whiptail on postgres
+        package_list = [ 'postgresql-9.3', 'postgresql-contrib-9.3', 'postgresql-server-dev-9.3', 'postgis', 'postgresql-9.3-postgis', 'postgresql-9.3-postgis-2.1-scripts' ]
+        install_package_fast(' '.join(package_list))
+        with(settings(hide('running'))):
+            put('./config/pg_hba.conf', '/etc/postgresql/9.3/main/pg_hba.conf', use_sudo=True)
+        sudo('/etc/init.d/postgresql restart')
 
 def start_webservers():
     sudo('/etc/init.d/nginx start')
     sudo('/etc/init.d/uwsgi start')
 
-def collect():
+def collectremote(name, app_type='app', release=None):
+    """
+    Run django collect static on named instance for app_type
+    """
+    sethostfromname(name)
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings(app_type)
+
+    with cd(app_settings["PROJECTPATH"]):
+        run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
+
+def collectlocal():
     """
     Create deployable tarball.
 
@@ -855,9 +893,6 @@ def collect():
     """
     release = time.strftime('%Y%m%d%H%M%S')
     local("find . -name '*.pyc' -delete", capture=False)
-
-    #local('python ./{{project_name}}/manage.py collectstatic --settings={{project_name}}.settings.init_deploy  --noinput ')
-    #local('python ./{{project_name}}/manage.py compress --settings={{project_name}}.settings.init_deploy ')
     local('python ./{{project_name}}/manage.py collectstatic --noinput ')
     local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
     return release
@@ -880,7 +915,7 @@ def upload_tar_from_local(release=None, app_type='app'):
         app_settings = loadsettings(app_type)
 
     if release is None:
-        release = collect()
+        release = collectlocal()
 
     run('mkdir -p {path}/releases/{release} {path}/packages'.format(path=app_settings["PROJECTPATH"], release=release))
     put('{release}.tbz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"], release=release))
@@ -888,7 +923,7 @@ def upload_tar_from_local(release=None, app_type='app'):
     sudo('rm {path}/packages/{release}.tbz'.format(path=app_settings["PROJECTPATH"], release=release))
     local('rm {release}.tbz'.format(release=release))
 
-def createlocaldb(app_type='app'):
+def createlocaldb(app_type='app', db_type='mysql'):
     """
     Create a local mysql db on named instance with given app settings.
     """
@@ -904,11 +939,19 @@ def createlocaldb(app_type='app'):
 
     try:
         with settings(hide('running','warnings')):
-            sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"], dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
-            sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_MYSQL_PASS"],
-                                                                                                                                                    dbname=local_app_settings["DATABASE_NAME"],
-                                                                                                                                                    dbuser=local_app_settings["DATABASE_USER"],
-                                                                                                                                                    dbpass=local_app_settings["DATABASE_PASS"]))
+            if db_type == 'mysql':
+                sudo('mysqladmin -p{mysql_root_pass} create {dbname}'.format(mysql_root_pass=app_settings["LOCAL_DB_SUPERUSER_PASS"], dbname=local_app_settings["DATABASE_NAME"]), warn_only=True)
+                sudo('mysql -uroot -p{mysql_root_pass} -e "GRANT ALL PRIVILEGES ON {dbname}.* to {dbuser}@\'localhost\' IDENTIFIED BY \'{dbpass}\'"'.format(mysql_root_pass=app_settings["LOCAL_DB_SUPERUSER_PASS"],
+                                                                                                                                                            dbname=local_app_settings["DATABASE_NAME"],
+                                                                                                                                                            dbuser=local_app_settings["DATABASE_USER"],
+                                                                                                                                                            dbpass=local_app_settings["DATABASE_PASS"]))
+            elif db_type == 'postgresql':
+                # TODO: setup a postgres db
+                with settings(hide('stdout')):
+                    sudo('psql -c "CREATE USER {dbuser} WITH PASSWORD \'{dbpass}\'"'.format(dbuser=local_app_settings["DATABASE_USER"], dbpass=local_app_settings["DATABASE_PASS"]), user='postgres', warn_only=True)
+                    sudo('createdb {dbname}'.format(dbname=local_app_settings["DATABASE_NAME"]), user='postgres', warn_only=True)
+                    sudo('psql -c "GRANT ALL PRIVILEGES ON DATABASE {dbname} to {dbuser};"'.format(dbname=local_app_settings["DATABASE_NAME"], dbuser=local_app_settings["DATABASE_USER"]), user='postgres', warn_only=True)
+                    sudo('psql -c "CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology;" -d {dbname}'.format(dbname=local_app_settings["DATABASE_NAME"]), user='postgres', warn_only=True)
     except Exception as error:
         print error
 
@@ -950,26 +993,44 @@ def loadsettings(app_type='app'):
     return settingsjson
 
 def generatedefaultsettings(settingstype):
-    if (settingstype == 'expa_core') or (settingstype == 'core') or (settingstype == 'expacore') :
-        app_settings = {"DATABASE_USER": "expacore",
+    if settingstype in ('expa_core', 'core', 'expacore'):
+        app_settings = {"DATABASE_USER" : "expacore",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "expa_core",
-                        "DATABASE_NAME": "expacore",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
+                        "DATABASE_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME" : "expa_core",
+                        "DATABASE_NAME" : "expacore",
+                        "DATABASE_HOST" : "localhost",
+                        "DATABASE_PORT" : "3306",
+                        "LOCAL_DB_TYPE" : "mysql",
                         "PROJECTPATH" : "/mnt/ym/expacore",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
                         "HOST_NAME" : "core.demo.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
-                        "GITHUB_USER" : "mhexpa",
-                        "COREADMIN_USER" : "coreadmin",
-                        "COREADMIN_EMAIL" : "coreadmin@expa.com",
-                        "COREADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
+                        "ADMIN_USER" : "coreadmin",
+                        "ADMIN_EMAIL" : "coreadmin@expa.com",
+                        "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
-
+    elif settingstype in ('expa_gis', 'gis', 'expagis'):
+        app_settings = {"DATABASE_USER": "expagis",
+                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
+                        "APP_NAME": "expa_gis",
+                        "DATABASE_NAME": "expagis",
+                        "DATABASE_HOST": "localhost",
+                        "DATABASE_PORT": "5432",
+                        "LOCAL_DB_TYPE" : "postgresql",
+                        "PROJECTPATH" : "/mnt/ym/expagis",
+                        "REQUIREMENTSFILE" : "production",
+                        "DOMAIN_NAME" : "demo.expa.com",
+                        "HOST_NAME" : "gis.demo.expa.com",
+                        "INSTALLROOT" : "/mnt/ym",
+                        "ADMIN_USER" : "gisadmin",
+                        "ADMIN_EMAIL" : "gisadmin@expa.com",
+                        "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        }
     elif settingstype == 'blog':
         app_settings = {"DATABASE_USER": "{{project_name}}_blog",
                         # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
@@ -978,6 +1039,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME": "blog",
                         "DATABASE_HOST": "localhost",
                         "DATABASE_PORT": "3306",
+                        "LOCAL_DB_TYPE" : "mysql",
                         "PROJECTPATH" : "/mnt/ym/blog",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
@@ -995,6 +1057,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME": "{{project_name}}",
                         "DATABASE_HOST": "localhost",
                         "DATABASE_PORT": "3306",
+                        "LOCAL_DB_TYPE" : "mysql",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",

@@ -1,0 +1,5 @@
+user_name: "<GITHUB USER NAME>"
+key_dir: "<GITHUB SSH KEY DIR>"
+core_deploy_key: "<FORKED CORE REPO DEPLOY KEY FILENAME>"
+gis_deploy_key: "<FORKED GIS REPO DEPLOY KEY FILENAME>"
+

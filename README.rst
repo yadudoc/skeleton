@@ -20,11 +20,9 @@ should replace this name with the actual name of your project.*
 Prerequisites
 =============
 #. Request addition as collaborator for expa/core github.com repo
-#. Fork expa/core github.com repo
-#. Create ssh key for use as deploy key (ssh-keygen -b 2048 -t rsa -f deploy -q -N "")
-#. Upload contents to github.com of deploy.pub to deploy keys section of your forked repo
-#. ssh-add your private key to your local ssh-agent
-#. Ensure agent forwarding is on (ref: https://help.github.com/articles/using-ssh-agent-forwarding)
+#. Fork expa/core github.com repo & create a deploy key
+#. Fork expa/gis github.com & create a deploy key (optional)
+#. setup git.cfg (based on git.cfg-dist)
 
 Working Environment
 ===================
