@@ -1,4 +1,4 @@
-Django==1.5.1 					# BSD
+Django==1.5 					# BSD
 bpython==0.12					# MIT
 django-braces==1.2.2			# BSD
 django-model-utils==1.4.0		# BSD
