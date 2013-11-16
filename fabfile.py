@@ -104,7 +104,7 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name, rdstype):
+def create_rds(name, app_type):
     """
     Launch an RDS instance with name provided
 
@@ -113,7 +113,7 @@ def create_rds(name, rdstype):
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings(rdstype)
+        app_settings = loadsettings(app_type)
 
     try:
         aws_cfg
@@ -158,7 +158,7 @@ def create_rds(name, rdstype):
 
     app_settings["DATABASE_HOST"] = dbhost
     app_settings["DATABASE_PORT"] = dbport
-    savesettings(app_settings, rdstype + '_settings.json')
+    savesettings(app_settings, app_type + '_settings.json')
 
     return str(dbinstance.endpoint)
 
@@ -403,7 +403,8 @@ def bootstrap(name, app_type):
         package_list.extend([ 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'libmysqlclient-dev' ])
 
     update_apt()
-    install_package('debconf-utils software-properties-common python-software-properties')
+    for package in ('debconf-utils', 'software-properties-common', 'python-software-properties'):
+        install_package(package)
     with settings(hide('running', 'stdout')):
         sudo('echo "deb http://us.archive.ubuntu.com/ubuntu/ precise main universe multiverse"  > /etc/apt/sources.list.d/ubuntu-multiverse.list')
         sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main"  > /etc/apt/sources.list.d/postgresql.list')
@@ -459,7 +460,7 @@ def deployapp(name, app_type):
         with cd('{path}'.format(path=deploypath)):
             run('echo "StrictHostKeyChecking no" >> ~/.ssh/config', quiet=True)
             put('{key_dir}/{key}'.format(key_dir=git_cfg["key_dir"], key=git_cfg[app_type+"_deploy_key"]), '~/.ssh/id_rsa', mode=0600)
-            run('git clone git@github.com:/{github_user}/{github_repo}.git .'.format(github_user=git_cfg["user_name"], github_repo=app_type))
+            run('git clone -q git@github.com:/{github_user}/{github_repo}.git .'.format(github_user=git_cfg["user_name"], github_repo=app_type))
             run('rm ~/.ssh/id_rsa')
             run('mkdir config')
             put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
@@ -783,8 +784,8 @@ def install_requirements(release=None, app_type='app'):
         release = 'current'
 
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
-        run('./bin/pip install --upgrade distribute')
-        run('./bin/pip install -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
+        run('./bin/pip install -q --upgrade distribute')
+        run('./bin/pip install -q -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
                                                                                                     requirements_file=app_settings["REQUIREMENTSFILE"]))
 
 def migrate(app_type):
@@ -962,8 +963,12 @@ def update_apt():
     """ run apt-get update """
     with settings(hide('running', 'stdout'), warn_only=True):
         print _yellow('Updating APT cache... '),
-        sudo('apt-get update')
-        print _green('[DONE]')
+        result = sudo('apt-get update')
+        if result.return_code != 0:
+            print "apt-get failed: " + result
+            raise SystemExit()
+        else:
+            print _green('[DONE]')
 
 def savesettings(appsettingsjson, settingsfile):
     #print _red("saving settings to: " + settingsfile)
