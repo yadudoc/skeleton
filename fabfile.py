@@ -396,15 +396,24 @@ def bootstrap(name, app_type):
         app_settings = loadsettings(app_type)
 
     print(_green("--BOOTSTRAPPING {name} for {app_type}--".format(name=name, app_type=app_type)))
-    package_list = ['language-pack-en', 'aptitude', 'git-core', 'mysql-client', 'ntpdate']
+    package_list = ['language-pack-en', 'aptitude', 'git-core', 'ntpdate']
     if app_type == 'blog':
         package_list.extend([ 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx'])
     else:
         package_list.extend([ 'python-setuptools', 'gcc', 'git-core', 'libxml2-dev', 'libxslt1-dev', 'python-virtualenv', 'python-dev', 'python-lxml', 'libcairo2', 'libpango1.0-0', 'libgdk-pixbuf2.0-0', 'libffi-dev', 'libmysqlclient-dev' ])
 
+    with settings(hide('stdout')):
+        if app_settings["DB_TYPE"] == 'mysql':
+            package_list.extend([ 'mysql-client' ])        
+            sudo('aptitude -y build-dep python-mysqldb')
+        elif app_settings["DB_TYPE"] == 'postgresql':
+            package_list.extend([ 'postgresql-client-common' , 'postgresql-client-9.3' ])
+            sudo('aptitude -y build-dep python-psycopg2')
+    if app_settings["APP_NAME"] == 'expa_gis':
+        package_list.extend([ 'postgis' ])
+
     update_apt()
-    for package in ('debconf-utils', 'software-properties-common', 'python-software-properties'):
-        install_package(package)
+    install_package('debconf-utils software-properties-common python-software-properties')
     with settings(hide('running', 'stdout')):
         sudo('echo "deb http://us.archive.ubuntu.com/ubuntu/ precise main universe multiverse"  > /etc/apt/sources.list.d/ubuntu-multiverse.list')
         sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main"  > /etc/apt/sources.list.d/postgresql.list')
@@ -413,12 +422,8 @@ def bootstrap(name, app_type):
     print _blue('Installing packages. please wait...')
     install_package(' '.join(package_list))
 
-    with settings(hide('stdout')):
-        sudo('aptitude -y build-dep python-mysqldb')
-        sudo('aptitude -y build-dep python-psycopg2')
-    install_package('python-mysqldb')
     if app_settings["DATABASE_HOST"] == 'localhost':
-        install_localdb_server(name, app_settings["LOCAL_DB_TYPE"])
+        install_localdb_server(name, app_settings["DB_TYPE"])
 
 @task
 def deployapp(name, app_type):
@@ -452,7 +457,16 @@ def deployapp(name, app_type):
         env.development
     except AttributeError:
         if app_settings["DATABASE_HOST"] == 'localhost':
-            createlocaldb(app_type, app_settings["LOCAL_DB_TYPE"])
+            createlocaldb(app_type, app_settings["DB_TYPE"])
+        else:
+            if app_settings["APP_NAME"] == 'expa_gis':
+                with settings(hide('running')):
+                    run('export PGPASSWORD={dbpass}; psql -h {dbhost} -p {dbport} -U {dbuser} -w -c "CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology;" -d {dbname}'.format(dbhost=app_settings["DATABASE_HOST"],
+                                                                                                                                                                                       dbport=app_settings["DATABASE_PORT"],
+                                                                                                                                                                                       dbuser=app_settings["DATABASE_USER"], 
+                                                                                                                                                                                       dbname=app_settings["DATABASE_NAME"],
+                                                                                                                                                                                       dbpass=app_settings["DATABASE_PASS"]),
+                                                                                                                                                                                       warn_only=True)
 
     sudo('[ -d {path} ] || mkdir -p {path}'.format(path=deploypath))
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
@@ -995,7 +1009,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME" : "expacore",
                         "DATABASE_HOST" : "localhost",
                         "DATABASE_PORT" : "5432",
-                        "LOCAL_DB_TYPE" : "postgresql",
+                        "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/expacore",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
@@ -1014,7 +1028,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME": "expagis",
                         "DATABASE_HOST": "localhost",
                         "DATABASE_PORT": "5432",
-                        "LOCAL_DB_TYPE" : "postgresql",
+                        "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/expagis",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
@@ -1033,7 +1047,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME": "blog",
                         "DATABASE_HOST": "localhost",
                         "DATABASE_PORT": "3306",
-                        "LOCAL_DB_TYPE" : "mysql",
+                        "DB_TYPE" : "mysql",
                         "PROJECTPATH" : "/mnt/ym/blog",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
@@ -1051,7 +1065,7 @@ def generatedefaultsettings(settingstype):
                         "DATABASE_NAME": "{{project_name}}",
                         "DATABASE_HOST": "localhost",
                         "DATABASE_PORT": "5432",
-                        "LOCAL_DB_TYPE" : "postgresql",
+                        "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
