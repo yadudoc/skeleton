@@ -104,7 +104,7 @@ def setup_aws_account():
             raise
 
 @task
-def create_rds(name, app_type):
+def create_rds(name, app_type, engine_type):
     """
     Launch an RDS instance with name provided
 
@@ -133,7 +133,7 @@ def create_rds(name, app_type):
         dbinstance = conn.create_dbinstance(id=name,
                                    allocated_storage=aws_cfg["rds_storage_size"],
                                    instance_class=aws_cfg["rds_instance_size"],
-                                   engine='MySQL',
+                                   engine=engine_type,
                                    master_username=app_settings["DATABASE_USER"],
                                    master_password=app_settings["DATABASE_PASS"],
                                    db_name=app_settings["DATABASE_NAME"],
@@ -994,8 +994,8 @@ def generatedefaultsettings(settingstype):
                         "APP_NAME" : "expa_core",
                         "DATABASE_NAME" : "expacore",
                         "DATABASE_HOST" : "localhost",
-                        "DATABASE_PORT" : "3306",
-                        "LOCAL_DB_TYPE" : "mysql",
+                        "DATABASE_PORT" : "5432",
+                        "LOCAL_DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/expacore",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",
@@ -1050,8 +1050,8 @@ def generatedefaultsettings(settingstype):
                         "APP_NAME": "{{project_name}}",
                         "DATABASE_NAME": "{{project_name}}",
                         "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
-                        "LOCAL_DB_TYPE" : "mysql",
+                        "DATABASE_PORT": "5432",
+                        "LOCAL_DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
                         "DOMAIN_NAME" : "demo.expa.com",

@@ -3,4 +3,5 @@
 -r base.txt
 
 gunicorn==0.17.4		# MIT
-MySQL-python==1.2.4		# GPL
+#MySQL-python==1.2.4		# GPL
+psycopg2==2.5.1
