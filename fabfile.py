@@ -409,7 +409,6 @@ def bootstrap(name, app_type):
         sudo('echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main"  > /etc/apt/sources.list.d/postgresql.list')
         sudo('wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -')
     update_apt()
-    install_package('apt-fast')
     print _blue('Installing packages. please wait...')
     install_package(' '.join(package_list))
 
