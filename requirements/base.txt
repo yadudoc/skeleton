@@ -7,8 +7,8 @@ South==0.8.1 					# Apache Software License
 Fabric==1.7.0 					# BSD
 awscli==1.1.1 					# Apache License 2.0
 bcdoc==0.10.0 					# Apache License 2.0
-boto==2.15.0 					# MIT
-botocore==0.18.0				# Free
+boto==2.17.0 					# MIT
+botocore==0.25.0				# Free
 colorama==0.2.5					# BSD
 config==0.3.9					# Vinay Sajip 
 distribute==0.7.3				# PSF or ZPL
