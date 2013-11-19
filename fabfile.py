@@ -1,9 +1,5 @@
-import boto
-import boto.ec2
-import boto.rds
-import boto.route53
-
-import aws, os, time, json, string, random
+import boto, boto.ec2, boto.rds, boto.route53
+import aws, os, time, json, string, random, subprocess
 
 from contextlib import contextmanager
 
@@ -52,7 +48,19 @@ def setup_aws_account():
             # generated and returned and needs to be stored locally.
             # The save method will also chmod the file to protect
             # your private key.
-            key.save(key_dir)
+            try:
+                key.save(key_dir)
+            except boto.exception.BotoClientError, error:
+                print "can't save key. deleting"
+                if ''.join(key_dir + '/' + key_name + ".pem") + " already exists," in error.message:
+                    key.delete()
+                    os.remove(''.join(key_dir + '/' + key_name + ".pem"))
+            try:
+                subprocess.Popen('ssh-add {}'.format(''.join(key_dir + '/' + key_name + ".pem")), shell=True)
+            except Exception:
+                print "ssh-add failed"
+                key.delete()
+                raise
         else:
             raise
 
@@ -89,7 +97,6 @@ def setup_aws_account():
         if error.code == 'DBSecurityGroupNotFound':
             print 'Creating DB Security Group: %s' % aws_cfg.get("aws", "group_name")
             try:
-                # Create a security group to control access to instance via SSH.
                 rdsgroup = rds.create_dbsecurity_group(aws_cfg.get("aws", "group_name"),
                                                               'A group that allows Webserver access')
                 rdsgroup.authorize(ec2_group=group)
