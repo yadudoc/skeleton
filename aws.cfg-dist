@@ -1,19 +1,45 @@
+[aws]
 aws_access_key_id: <YOUR KEY HERE>
 aws_secret_access_key: <YOUR SECRET KEY HERE>
-region: "<YOUR REGION HERE, e.g. us-east-1>"
+region: <YOUR REGION HERE, e.g. us-east-1>
 key_name: <YOUR EC2 KEY NAME>
 group_name: <YOUR SECURITY GROUP NAME>
 key_dir: <WHERE ARE YOUR KEYS>
 ssh_port: 22
+
+[rds]
 rds_storage_size: <RDS STORAGE IN GB>
 rds_instance_size: <RDS INSTANCE SIZE>
+
+[micro]
 # All AMIs are in US-East
 # micro and EBS: ubuntu/images/ebs/ubuntu-precise-12.04-amd64-server-20131024
-instance_type: "t1.micro"
-ubuntu_lts_ami: "ami-69f5a900"
+instance_type: t1.micro
+ubuntu_lts_ami: ami-69f5a900
+
+[small]
 # small and instance store: ubuntu/images/ubuntu-precise-12.04-amd64-server-20131024
-#instance_type: "m1.small"
-#ubuntu_lts_ami: "ami-5ffaa636"
+instance_type: m1.small
+ubuntu_lts_ami: ami-5ffaa636
+
+[large]
 # large and instance store: ubuntu/images/ubuntu-precise-12.04-amd64-server-20131024
-#instance_type: "m1.large"
-#ubuntu_lts_ami: "ami-5ffaa636"
+instance_type: m1.large
+ubuntu_lts_ami: ami-5ffaa636
+
+[vpc]
+name = expa
+cidr_block = 10.0.0.0/16
+key_bucket_prefix = expa
+
+[core]
+ssh_hosts = 10.0.1.*
+cidr_block = 10.0.1.0/24
+availability_zone = us-east-1b
+bastion_host = io
+
+[app]
+ssh_hosts = 10.0.2.*
+cidr_block = 10.0.2.0/24
+availability_zone = us-east-1c
+bastion_host = callisto

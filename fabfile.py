@@ -3,7 +3,7 @@ import boto.ec2
 import boto.rds
 import boto.route53
 
-import os, time, json, string, random
+import aws, os, time, json, string, random
 
 from contextlib import contextmanager
 
@@ -13,8 +13,6 @@ from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide
-
-from config import Config
 
 #-----FABRIC TASKS-----------
 @task
@@ -33,18 +31,18 @@ def setup_aws_account():
     # If we get an InvalidKeyPair.NotFound error back from EC2,
     # it means that it doesn't exist and we need to create it.
     try:
-        key_name = aws_cfg["key_name"]
+        key_name = aws_cfg.get('aws', 'key_name')
         key = ec2.get_all_key_pairs(keynames=[key_name])[0]
         print "key name {} already exists".format(key_name)
     except ec2.ResponseError, error:
         if error.code == 'InvalidKeyPair.NotFound':
-            print 'Creating keypair: %s' % aws_cfg["key_name"]
+            print 'Creating keypair: %s' % key_name
             # Create an SSH key to use when logging into instances.
-            key = ec2.create_key_pair(aws_cfg["key_name"])
+            key = ec2.create_key_pair(aws_cfg.get("aws", "key_name"))
 
             # Make sure the specified key_dir actually exists.
             # If not, create it.
-            key_dir = aws_cfg["key_dir"]
+            key_dir = aws_cfg.get("aws", "key_dir")
             key_dir = os.path.expanduser(key_dir)
             key_dir = os.path.expandvars(key_dir)
             if not os.path.isdir(key_dir):
@@ -62,43 +60,43 @@ def setup_aws_account():
     # If we get an InvalidGroup.NotFound error back from EC2,
     # it means that it doesn't exist and we need to create it.
     try:
-        group = ec2.get_all_security_groups(groupnames=[aws_cfg["group_name"]])[0]
+        group = ec2.get_all_security_groups(groupnames=[aws_cfg.get("aws", "group_name")])[0]
     except ec2.ResponseError, error:
         if error.code == 'InvalidGroup.NotFound':
-            print 'Creating Security Group: %s' % aws_cfg["group_name"]
+            print 'Creating Security Group: %s' % aws_cfg.get("aws", "group_name")
             # Create a security group to control access to instance via SSH.
-            group = ec2.create_security_group(aws_cfg["group_name"],
+            group = ec2.create_security_group(aws_cfg.get("aws", "group_name"),
                                               'A group that allows SSH and Web access')
         else:
             raise
 
     # Add a rule to the security group to authorize SSH traffic
     # on the specified port.
-    for port in ["80", "443", aws_cfg["ssh_port"]]:
+    for port in ["80", "443", aws_cfg.get("aws", "ssh_port")]:
         try:
             group.authorize('tcp', port, port, "0.0.0.0/0")
         except ec2.ResponseError, error:
             if error.code == 'InvalidPermission.Duplicate':
-                print 'Security Group: %s already authorized' % aws_cfg["group_name"]
+                print 'Security Group: %s already authorized' % aws_cfg.get("aws", "group_name")
             else:
                 raise
 
     # rds authorization
     rds = connect_to_rds()
     try:
-        rdsgroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg["group_name"])[0]
+        rdsgroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
     except rds.ResponseError, error:
         if error.code == 'DBSecurityGroupNotFound':
-            print 'Creating DB Security Group: %s' % aws_cfg["group_name"]
+            print 'Creating DB Security Group: %s' % aws_cfg.get("aws", "group_name")
             try:
                 # Create a security group to control access to instance via SSH.
-                rdsgroup = rds.create_dbsecurity_group(aws_cfg["group_name"],
+                rdsgroup = rds.create_dbsecurity_group(aws_cfg.get("aws", "group_name"),
                                                               'A group that allows Webserver access')
                 rdsgroup.authorize(ec2_group=group)
             except Exception, error:
-                print _red('Error occured while create security group "%s": %s') %(aws_cfg["group_name"], str(error))
+                print _red('Error occured while create security group "%s": %s') %(aws_cfg.get("aws", "group_name"), str(error))
                 print _yellow('Rolling back!')
-                rds.delete_dbsecurity_group(aws_cfg["group_name"])
+                rds.delete_dbsecurity_group(aws_cfg.get("aws", "group_name"))
                 return
         else:
             raise
@@ -123,7 +121,7 @@ def create_rds(name, app_type, engine_type):
     conn = connect_to_rds()
 
     try:
-        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg["group_name"])[0]
+        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
     except conn.ResponseError, error:
         setup_aws_account()
 
@@ -131,16 +129,16 @@ def create_rds(name, app_type, engine_type):
 
     try:
         dbinstance = conn.create_dbinstance(id=name,
-                                   allocated_storage=aws_cfg["rds_storage_size"],
-                                   instance_class=aws_cfg["rds_instance_size"],
+                                   allocated_storage=aws_cfg.get("rds", "rds_storage_size"),
+                                   instance_class=aws_cfg.get("rds", "rds_instance_size"),
                                    engine=engine_type,
                                    master_username=app_settings["DATABASE_USER"],
                                    master_password=app_settings["DATABASE_PASS"],
                                    db_name=app_settings["DATABASE_NAME"],
                                    security_groups=[group])
     except Exception as error:
-        print _red('Error occured while provisioning the RDS instance %s' % str(error))
-        print name, aws_cfg["rds_storage_size"], aws_cfg["rds_instance_size"], app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
+        print _red('Error occured while provisioning the RDS instance  %s' % str(error))
+        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_size"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
         return
 
     print _yellow('Waiting for rdsInstance to start...')
@@ -211,10 +209,10 @@ def create_ec2(name, tag=None, ami=None):
         aws_cfg = load_aws_cfg()
 
     if ami is None:
-        ami = aws_cfg["ubuntu_lts_ami"]
-    instance_type = aws_cfg["instance_type"]
-    key_name = aws_cfg["key_name"]
-    group_name = aws_cfg["group_name"]
+        ami = aws_cfg.get("micro", "ubuntu_lts_ami")
+    instance_type = aws_cfg.get("micro", "instance_type")
+    key_name = aws_cfg.get("aws", "key_name")
+    group_name = aws_cfg.get("aws", "group_name")
 
     print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name, type=instance_type, ami=ami)))
     print(_yellow("...Creating EC2 instance..."))
@@ -263,6 +261,45 @@ def create_ec2(name, tag=None, ami=None):
         except Exception:
             time.sleep(5)
     return instance.public_dns_name
+
+@task
+def create_vpc():
+    """
+    Make VPC with name
+    """
+    bastion_hosts = aws.make_vpc()
+    for host in bastion_hosts:
+        if not os.path.isdir("fab_hosts"):
+            os.mkdir('fab_hosts')
+        hostfile = open("fab_hosts/{}.txt".format(host.name), "w")
+        hostfile.write(host.public_ip)
+        hostfile.close()
+        addtosshconfig(host.name, host.public_ip)
+
+@task
+def delete_vpc():
+    """
+    Delete VPC - by default the vpc_name is 'midkemia'
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+    bastion_hosts = []
+
+    aws.delete_vpc()
+    for section in aws_cfg.sections():
+        try:
+            bastion_hosts.append(aws_cfg.get(section, "bastion_host"))
+        except Exception:
+            pass
+
+    for bastion_host in bastion_hosts:
+        path = './fab_hosts/' + bastion_host + '.txt'
+        public_ip = open(path).readline().strip()
+        if os.path.isfile(path):
+            os.remove(path)
+        removefromsshconfig(public_ip)
 
 @task
 def terminate_ec2(name):
@@ -396,7 +433,7 @@ def bootstrap(name, app_type):
         app_settings = loadsettings(app_type)
 
     print(_green("--BOOTSTRAPPING {name} for {app_type}--".format(name=name, app_type=app_type)))
-    package_list = ['language-pack-en', 'aptitude', 'git-core', 'ntpdate']
+    package_list = ['s3cmd', 'language-pack-en', 'aptitude', 'git-core', 'ntpdate']
     if app_type == 'blog':
         package_list.extend([ 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx'])
     else:
@@ -473,8 +510,8 @@ def deployapp(name, app_type):
     if app_settings["APP_NAME"] in ('expa_core', 'expa_gis'):
         with cd('{path}'.format(path=deploypath)):
             run('echo "StrictHostKeyChecking no" >> ~/.ssh/config', quiet=True)
-            put('{key_dir}/{key}'.format(key_dir=git_cfg["key_dir"], key=git_cfg[app_type+"_deploy_key"]), '~/.ssh/id_rsa', mode=0600)
-            run('git clone -q git@github.com:/{github_user}/{github_repo}.git .'.format(github_user=git_cfg["user_name"], github_repo=app_type))
+            put('{key_dir}/{key}'.format(key_dir=git_cfg.get("git", "key_dir"), key=git_cfg.get("git", app_type+"_deploy_key")), '~/.ssh/id_rsa', mode=0600)
+            run('git clone -q git@github.com:/{github_user}/{github_repo}.git .'.format(github_user=git_cfg.get("git", "user_name"), github_repo=app_type))
             run('rm ~/.ssh/id_rsa')
             run('mkdir config')
             put('./config/*', '{}/config/'.format(deploypath), use_glob=True)
@@ -627,8 +664,8 @@ def connect_to_elb():
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    return boto.connect_elb(aws_access_key_id=aws_cfg["aws_access_key_id"],
-                            aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+    return boto.connect_elb(aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                            aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
 def connect_to_ec2():
     """
@@ -640,9 +677,9 @@ def connect_to_ec2():
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    return boto.ec2.connect_to_region(aws_cfg["region"],
-                                      aws_access_key_id=aws_cfg["aws_access_key_id"],
-                                      aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+    return boto.ec2.connect_to_region(aws_cfg.get("aws", "region"),
+                                      aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                      aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
 def connect_to_rds():
     """
@@ -654,9 +691,9 @@ def connect_to_rds():
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    return boto.rds.connect_to_region(aws_cfg["region"],
-                                      aws_access_key_id=aws_cfg["aws_access_key_id"],
-                                      aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+    return boto.rds.connect_to_region(aws_cfg.get("aws", "region"),
+                                      aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                      aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
 def connect_to_r53():
     """
@@ -668,8 +705,8 @@ def connect_to_r53():
         aws_cfg = load_aws_cfg()
 
     return boto.route53.connect_to_region('universal',
-                                          aws_access_key_id=aws_cfg["aws_access_key_id"],
-                                          aws_secret_access_key=aws_cfg["aws_secret_access_key"])
+                                          aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                          aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
 def remove_dns_entries(name, app_type):
     """
@@ -771,17 +808,18 @@ def setup_route53_dns(name, app_type):
 
 def load_aws_cfg():
     try:
-        aws_cfg = Config(open('aws.cfg'))
-        env.key_filename = os.path.expanduser(os.path.join(aws_cfg["key_dir"],
-                                                           aws_cfg["key_name"] + ".pem"))
-        return aws_cfg
+        config = aws.read_config_file('aws.cfg')
+        env.key_filename = os.path.expanduser(os.path.join(config.get("aws", "key_dir"),
+                                                           config.get("aws", "key_name") + ".pem"))
+        return config
     except Exception as error:
         print "aws.cfg not found. %s" % error
         return 1
 
 def load_git_cfg():
     try:
-        git_cfg = Config(open('git.cfg'))
+        #git_cfg = Config(open('git.cfg'))
+        git_cfg = aws.read_config_file('git.cfg')
         return git_cfg
     except Exception as error:
         print "git.cfg not found. %s" % error
@@ -1091,7 +1129,7 @@ def addtosshconfig(name, dns):
     User ubuntu
     IdentityFile {key_file_path}
     ForwardAgent yes
-    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg["key_dir"]), aws_cfg["key_name"] + ".pem"))
+    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg.get("aws", "key_dir")), aws_cfg.get("aws", "key_name") + ".pem"))
     if os.name == 'posix':
         try:
             with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
