@@ -124,6 +124,7 @@ def create_rds(name, app_type, engine_type):
         group = conn.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
     except conn.ResponseError, error:
         setup_aws_account()
+        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
 
     print(_green("Creating RDS instance {name}...".format(name=name)))
 
@@ -224,6 +225,8 @@ def create_ec2(name, tag=None, ami=None):
         group = conn.get_all_security_groups(groupnames=[group_name])[0]
     except conn.ResponseError:
         setup_aws_account()
+        key = conn.get_all_key_pairs(keynames=[key_name])[0]
+        group = conn.get_all_security_groups(groupnames=[group_name])[0]
 
     reservation = conn.run_instances(ami,
         key_name=key.name,
@@ -1050,8 +1053,8 @@ def generatedefaultsettings(settingstype):
                         "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/expacore",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "demo.expa.com",
-                        "HOST_NAME" : "core.demo.expa.com",
+                        "DOMAIN_NAME" : "test.expa.com",
+                        "HOST_NAME" : "core.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "ADMIN_USER" : "coreadmin",
                         "ADMIN_EMAIL" : "coreadmin@expa.com",
@@ -1069,8 +1072,8 @@ def generatedefaultsettings(settingstype):
                         "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/expagis",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "demo.expa.com",
-                        "HOST_NAME" : "gis.demo.expa.com",
+                        "DOMAIN_NAME" : "test.expa.com",
+                        "HOST_NAME" : "gis.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "ADMIN_USER" : "gisadmin",
                         "ADMIN_EMAIL" : "gisadmin@expa.com",
@@ -1088,8 +1091,8 @@ def generatedefaultsettings(settingstype):
                         "DB_TYPE" : "mysql",
                         "PROJECTPATH" : "/mnt/ym/blog",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "demo.expa.com",
-                        "HOST_NAME" : "blog.demo.expa.com",
+                        "DOMAIN_NAME" : "test.expa.com",
+                        "HOST_NAME" : "blog.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "BLOG_ADMIN" : "{{project_name}}_admin",
                         "BLOG_ADMIN_EMAIL" : "{{project_name}}_admin@{{project_name}}.com",
@@ -1106,8 +1109,8 @@ def generatedefaultsettings(settingstype):
                         "DB_TYPE" : "postgresql",
                         "PROJECTPATH" : "/mnt/ym/{{project_name}}",
                         "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "demo.expa.com",
-                        "HOST_NAME" : "www.demo.expa.com",
+                        "DOMAIN_NAME" : "test.expa.com",
+                        "HOST_NAME" : "www.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
                         "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
                         }
