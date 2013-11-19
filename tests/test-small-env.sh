@@ -34,6 +34,9 @@ deploywp:expatest-1
 python ./tests/testapps.py
 RC=$?
 if [ $RC -gt 0 ];then
-	echo "something failed"
+	echo "fail"
 	exit 1
+else
+	echo "pass"
 fi
+

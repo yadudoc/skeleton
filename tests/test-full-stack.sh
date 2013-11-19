@@ -44,6 +44,8 @@ deployapp:expatest-2,app
 
 python ./tests/testapps.py
 if [ $? -gt 0 ];then
-	echo "something failed"
+	echo "fail"
 	exit 1
+else
+	echo "pass"
 fi
