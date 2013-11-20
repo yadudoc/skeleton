@@ -981,15 +981,12 @@ def install_web(app_type):
             setup_s3_logging_bucket(app_type)
             app_settings = loadsettings(app_type)
         sudo('mkdir -p /root/logrotate')
-        # make logrotate sync each app individually
         sudo('mv ./config/root-crontab ./config/nginx-logrotate /root/logrotate/')
         sudo('mv ./config/s3cfg /root/.s3cfg; chown root:root /root/.s3cfg ; chmod 600 /root/.s3cfg')
         with settings(hide('running')):
-            sudo('sed -i -e "s:<S3_LOGGING_BUCKET>:{s3_logging_bucket}/{host_name}:g" /root/logrotate/nginx-logrotate'.format(s3_logging_bucket=app_settings["S3_LOGGING_BUCKET"],
-                                                                                                                              host_name=app_settings["HOST_NAME"]))
+            sudo('sed -i -e "s:<S3_LOGGING_BUCKET>:{s3_logging_bucket}/:g" /root/logrotate/nginx-logrotate'.format(s3_logging_bucket=app_settings["S3_LOGGING_BUCKET"]))
             sudo('sed -i -e "s:<ACCESS_KEY>:{access_key}:g" -e "s:<ACCESS_TOKEN>:{access_token}:g" /root/.s3cfg'.format(access_key=aws_cfg.get('aws', 'access_key_id'), 
                                                                                                                         access_token=aws_cfg.get('aws', 'secret_access_key')))
-        # update crontab to run each app logrotate
         sudo('crontab -u root /root/logrotate/root-crontab')
     sudo('chmod 755 /etc/init.d/uwsgi')
 
