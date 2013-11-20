@@ -959,6 +959,7 @@ def install_web(app_type):
         aws_cfg = load_aws_cfg()
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
+    sudo('mkdir -p /var/log/nginx/{host_name}'.format(host_name=app_settings["HOST_NAME"]))
 
     install_package('nginx')
     if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
@@ -985,8 +986,8 @@ def install_web(app_type):
         sudo('mv ./config/s3cfg /root/.s3cfg; chown root:root /root/.s3cfg ; chmod 600 /root/.s3cfg')
         with settings(hide('running')):
             sudo('sed -i -e "s:<S3_LOGGING_BUCKET>:{s3_logging_bucket}/:g" /root/logrotate/nginx-logrotate'.format(s3_logging_bucket=app_settings["S3_LOGGING_BUCKET"]))
-            sudo('sed -i -e "s:<ACCESS_KEY>:{access_key}:g" -e "s:<ACCESS_TOKEN>:{access_token}:g" /root/.s3cfg'.format(access_key=aws_cfg.get('aws', 'access_key_id'), 
-                                                                                                                        access_token=aws_cfg.get('aws', 'secret_access_key')))
+            sudo('sed -i -e "s:<ACCESS_KEY>:{access_key}:g" -e "s:<SECRET_KEY>:{secret_key}:g" /root/.s3cfg'.format(access_key=aws_cfg.get('aws', 'access_key_id'),
+                                                                                                                    secret_key=aws_cfg.get('aws', 'secret_access_key')))
         sudo('crontab -u root /root/logrotate/root-crontab')
     sudo('chmod 755 /etc/init.d/uwsgi')
 
