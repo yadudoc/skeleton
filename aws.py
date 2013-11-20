@@ -12,9 +12,13 @@ def read_config_file(config_file_path):
         config.readfp(fp)
     return config
 
-init_cfg = read_config_file('aws.cfg')
-CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), 'aws.cfg')
-BASTION_KEY_FILE = os.path.join(os.path.expanduser(init_cfg.get("aws", "key_dir")), init_cfg.get("aws", "key_name") + ".pem")
+try:
+    init_cfg = read_config_file('aws.cfg')
+    CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), 'aws.cfg')
+    BASTION_KEY_FILE = os.path.join(os.path.expanduser(init_cfg.get("aws", "key_dir")), init_cfg.get("aws", "key_name") + ".pem")
+except Exception:
+    print "something went wrong when reading your aws.cfg file. aws access will not be permitted."
+
 ANYWHERE = '0.0.0.0/0'
 
 Node = namedtuple('Node', ['name', 'public_ip', 'user', 'keyfile'])
