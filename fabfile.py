@@ -346,7 +346,7 @@ def bootstrap(name, app_type):
         app_settings = loadsettings(app_type)
 
     print(_green("--BOOTSTRAPPING {name} for {app_type}--".format(name=name, app_type=app_type)))
-    package_list = ['s3cmd', 'language-pack-en', 'aptitude', 'git-core', 'ntpdate']
+    package_list = ['language-pack-en', 'aptitude', 'git-core', 'ntpdate']
     if app_type == 'blog':
         package_list.extend([ 'php5-fpm', 'php5-gd', 'php5-json', 'php5-xcache', 'php5-mysql', 'php5-mcrypt', 'php5-imap', 'php5-geoip', 'php5-sqlite', 'php5-curl', 'php5-cli', 'php5-gd', 'php5-intl', 'php-pear', 'php5-imagick', 'php5-imap', 'php5-mcrypt', 'php5-memcache', 'php5-ming', 'php5-ps', 'php5-pspell', 'php5-recode', 'php5-snmp', 'php5-sqlite', 'php5-tidy', 'php5-xmlrpc', 'php5-xsl', 'nginx'])
     else:
