@@ -60,7 +60,7 @@ print "creating venv %s..." % envdir
 local('virtualenv %s' % envdir)
 with lcd(envdir):
     with virtualenv(envdir):
-        local('pip install -q django==1.5.1')
+        local('pip install -q django==1.6')
         local('django-admin.py startproject --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab %s' % project_name)
         with lcd(project_name):
             local(rcp + config_dir + '/*.cfg ' + config_dir + '/keys ' + ' ./ ')

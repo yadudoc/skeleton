@@ -16,7 +16,7 @@ virtualenv $ENVDIR
 cd $ENVDIR
 source bin/activate
 echo "starting django skeleton project..."
-pip install django==1.5.1
+pip install django==1.6
 django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab $project_name
 cd $project_name
 rcp ${config_dir}/aws.cfg ${config_dir}/git.cfg ${config_dir}/keys ./
