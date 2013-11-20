@@ -1,0 +1,1 @@
+0,15,30,45 * * * * /usr/sbin/logrotate --state /root/logrotate/log_rotate.state /root/logrotate/nginx-logrotate
