@@ -967,7 +967,7 @@ def install_web(app_type):
         sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
         sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
 
-    sudo('pip install uwsgi')
+    sudo('pip install -q uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
         sudo('cp ./config/uwsgi /etc/init.d/uwsgi')
         sudo('if [ ! -d /etc/uwsgi ]; then mkdir /etc/uwsgi ; fi')
