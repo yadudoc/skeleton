@@ -1,4 +1,4 @@
-import boto, boto.ec2, boto.rds, boto.route53
+import boto.ec2, boto.rds, boto.route53, boto.s3, boto.iam
 import aws, os, time, json, string, random, subprocess
 
 from contextlib import contextmanager
@@ -11,103 +11,6 @@ from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide
 
 #-----FABRIC TASKS-----------
-@task
-def setup_aws_account():
-    """
-    Attempts to setup key pairs and ec2 security groups provided in aws.cfg
-    """
-    try:
-        aws_cfg
-    except NameError:
-        aws_cfg = load_aws_cfg()
-
-    ec2 = connect_to_ec2()
-
-    # Check to see if specified keypair already exists.
-    # If we get an InvalidKeyPair.NotFound error back from EC2,
-    # it means that it doesn't exist and we need to create it.
-    try:
-        key_name = aws_cfg.get('aws', 'key_name')
-        key = ec2.get_all_key_pairs(keynames=[key_name])[0]
-        print "key name {} already exists".format(key_name)
-    except ec2.ResponseError, error:
-        if error.code == 'InvalidKeyPair.NotFound':
-            print 'Creating keypair: %s' % key_name
-            # Create an SSH key to use when logging into instances.
-            key = ec2.create_key_pair(aws_cfg.get("aws", "key_name"))
-
-            # Make sure the specified key_dir actually exists.
-            # If not, create it.
-            key_dir = aws_cfg.get("aws", "key_dir")
-            key_dir = os.path.expanduser(key_dir)
-            key_dir = os.path.expandvars(key_dir)
-            if not os.path.isdir(key_dir):
-                os.mkdir(key_dir, 0700)
-
-            # AWS will store the public key but the private key is
-            # generated and returned and needs to be stored locally.
-            # The save method will also chmod the file to protect
-            # your private key.
-            try:
-                key.save(key_dir)
-            except boto.exception.BotoClientError, error:
-                print "can't save key. deleting"
-                if ''.join(key_dir + '/' + key_name + ".pem") + " already exists," in error.message:
-                    key.delete()
-                    os.remove(''.join(key_dir + '/' + key_name + ".pem"))
-            try:
-                subprocess.Popen('ssh-add {}'.format(''.join(key_dir + '/' + key_name + ".pem")), shell=True)
-            except Exception:
-                print "ssh-add failed"
-                key.delete()
-                raise
-        else:
-            raise
-
-    # Check to see if specified security group already exists.
-    # If we get an InvalidGroup.NotFound error back from EC2,
-    # it means that it doesn't exist and we need to create it.
-    try:
-        group = ec2.get_all_security_groups(groupnames=[aws_cfg.get("aws", "group_name")])[0]
-    except ec2.ResponseError, error:
-        if error.code == 'InvalidGroup.NotFound':
-            print 'Creating Security Group: %s' % aws_cfg.get("aws", "group_name")
-            # Create a security group to control access to instance via SSH.
-            group = ec2.create_security_group(aws_cfg.get("aws", "group_name"),
-                                              'A group that allows SSH and Web access')
-        else:
-            raise
-
-    # Add a rule to the security group to authorize SSH traffic
-    # on the specified port.
-    for port in ["80", "443", aws_cfg.get("aws", "ssh_port")]:
-        try:
-            group.authorize('tcp', port, port, "0.0.0.0/0")
-        except ec2.ResponseError, error:
-            if error.code == 'InvalidPermission.Duplicate':
-                print 'Security Group: %s already authorized' % aws_cfg.get("aws", "group_name")
-            else:
-                raise
-
-    # rds authorization
-    rds = connect_to_rds()
-    try:
-        rdsgroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
-    except rds.ResponseError, error:
-        if error.code == 'DBSecurityGroupNotFound':
-            print 'Creating DB Security Group: %s' % aws_cfg.get("aws", "group_name")
-            try:
-                rdsgroup = rds.create_dbsecurity_group(aws_cfg.get("aws", "group_name"),
-                                                              'A group that allows Webserver access')
-                rdsgroup.authorize(ec2_group=group)
-            except Exception, error:
-                print _red('Error occured while create security group "%s": %s') %(aws_cfg.get("aws", "group_name"), str(error))
-                print _yellow('Rolling back!')
-                rds.delete_dbsecurity_group(aws_cfg.get("aws", "group_name"))
-                return
-        else:
-            raise
-
 @task
 def create_rds(name, app_type, engine_type):
     """
@@ -330,7 +233,7 @@ def terminate_ec2(name):
             if "terminated" in str(instance.state):
                 print "instance {} is already terminated".format(instance.id)
             else:
-                if raw_input("shall we terminate {name}? (y/n) ".format(name=name)).lower() == "y":
+                if raw_input("shall we terminate {name}/{id}/{dns}? (y/n) ".format(name=name, id=instance.id, dns=instance.public_dns_name)).lower() == "y":
                     print(_yellow("Terminating {}".format(instance.id)))
                     conn.terminate_instances(instance_ids=[instance.id])
                     print(_yellow("Terminated"))
@@ -468,6 +371,9 @@ def bootstrap(name, app_type):
     update_apt()
     print _blue('Installing packages. please wait...')
     install_package(' '.join(package_list))
+    with settings(hide('stdout')):
+        sudo('apt-get -qq -y --force-yes remove s3cmd')
+    sudo('pip install -q --upgrade s3cmd')
 
     if app_settings["DATABASE_HOST"] == 'localhost':
         install_localdb_server(name, app_settings["DB_TYPE"])
@@ -668,7 +574,6 @@ def connect_to_elb():
     """
     return an ec2 connection given credentials imported from config
     """
-
     try:
         aws_cfg
     except NameError:
@@ -681,7 +586,6 @@ def connect_to_ec2():
     """
     return an ec2 connection given credentials imported from config
     """
-
     try:
         aws_cfg
     except NameError:
@@ -695,13 +599,38 @@ def connect_to_rds():
     """
     return an rds connection given credentials imported from config
     """
-
     try:
         aws_cfg
     except NameError:
         aws_cfg = load_aws_cfg()
 
     return boto.rds.connect_to_region(aws_cfg.get("aws", "region"),
+                                      aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                      aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
+
+def connect_to_s3():
+    """
+    return an s3 connection given credentials imported from config
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
+    return boto.s3.connect_to_region(aws_cfg.get("aws", "region"),
+                                      aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                      aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
+
+def connect_to_iam():
+    """
+    return an IAM connection given credentials imported from config
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
+    return boto.iam.connect_to_region("universal",
                                       aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
                                       aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
@@ -717,6 +646,102 @@ def connect_to_r53():
     return boto.route53.connect_to_region('universal',
                                           aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
                                           aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
+
+def setup_aws_account():
+    """
+    Attempts to setup key pairs and ec2 security groups provided in aws.cfg
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
+    ec2 = connect_to_ec2()
+
+    # Check to see if specified keypair already exists.
+    # If we get an InvalidKeyPair.NotFound error back from EC2,
+    # it means that it doesn't exist and we need to create it.
+    try:
+        key_name = aws_cfg.get('aws', 'key_name')
+        key = ec2.get_all_key_pairs(keynames=[key_name])[0]
+        print "key name {} already exists".format(key_name)
+    except ec2.ResponseError, error:
+        if error.code == 'InvalidKeyPair.NotFound':
+            print 'Creating keypair: %s' % key_name
+            # Create an SSH key to use when logging into instances.
+            key = ec2.create_key_pair(aws_cfg.get("aws", "key_name"))
+
+            # Make sure the specified key_dir actually exists.
+            # If not, create it.
+            key_dir = aws_cfg.get("aws", "key_dir")
+            key_dir = os.path.expanduser(key_dir)
+            key_dir = os.path.expandvars(key_dir)
+            if not os.path.isdir(key_dir):
+                os.mkdir(key_dir, 0700)
+
+            # AWS will store the public key but the private key is
+            # generated and returned and needs to be stored locally.
+            # The save method will also chmod the file to protect
+            # your private key.
+            try:
+                key.save(key_dir)
+            except boto.exception.BotoClientError, error:
+                print "can't save key. deleting"
+                if ''.join(key_dir + '/' + key_name + ".pem") + " already exists," in error.message:
+                    key.delete()
+                    os.remove(''.join(key_dir + '/' + key_name + ".pem"))
+            try:
+                subprocess.Popen('ssh-add {}'.format(''.join(key_dir + '/' + key_name + ".pem")), shell=True)
+            except Exception:
+                print "ssh-add failed"
+                key.delete()
+                raise
+        else:
+            raise
+
+    # Check to see if specified security group already exists.
+    # If we get an InvalidGroup.NotFound error back from EC2,
+    # it means that it doesn't exist and we need to create it.
+    try:
+        group = ec2.get_all_security_groups(groupnames=[aws_cfg.get("aws", "group_name")])[0]
+    except ec2.ResponseError, error:
+        if error.code == 'InvalidGroup.NotFound':
+            print 'Creating Security Group: %s' % aws_cfg.get("aws", "group_name")
+            # Create a security group to control access to instance via SSH.
+            group = ec2.create_security_group(aws_cfg.get("aws", "group_name"),
+                                              'A group that allows SSH and Web access')
+        else:
+            raise
+
+    # Add a rule to the security group to authorize SSH traffic
+    # on the specified port.
+    for port in ["80", "443", aws_cfg.get("aws", "ssh_port")]:
+        try:
+            group.authorize('tcp', port, port, "0.0.0.0/0")
+        except ec2.ResponseError, error:
+            if error.code == 'InvalidPermission.Duplicate':
+                print 'Security Group: %s already authorized' % aws_cfg.get("aws", "group_name")
+            else:
+                raise
+
+    # rds authorization
+    rds = connect_to_rds()
+    try:
+        rdsgroup = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
+    except rds.ResponseError, error:
+        if error.code == 'DBSecurityGroupNotFound':
+            print 'Creating DB Security Group: %s' % aws_cfg.get("aws", "group_name")
+            try:
+                rdsgroup = rds.create_dbsecurity_group(aws_cfg.get("aws", "group_name"),
+                                                              'A group that allows Webserver access')
+                rdsgroup.authorize(ec2_group=group)
+            except Exception, error:
+                print _red('Error occured while create security group "%s": %s') %(aws_cfg.get("aws", "group_name"), str(error))
+                print _yellow('Rolling back!')
+                rds.delete_dbsecurity_group(aws_cfg.get("aws", "group_name"))
+                return
+        else:
+            raise
 
 def remove_dns_entries(name, app_type):
     """
@@ -816,6 +841,62 @@ def setup_route53_dns(name, app_type):
         else:
             raise
 
+def setup_s3_logging_bucket(app_type):
+    """
+    Creates the S3 bucket for webserver log syncing
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings(app_type)
+
+    s3 = connect_to_s3()
+    s3BucketName = app_settings["DOMAIN_NAME"] + "-webserver-logs"
+    try:
+        print "creating {}".format(s3BucketName) 
+        s3.create_bucket('{}'.format(s3BucketName), policy='private')
+    except Exception, error:
+        print error
+        raise
+
+    try:
+        app_settings["S3_LOGGING_BUCKET"]
+    except KeyError:
+        app_settings["S3_LOGGING_BUCKET"] = s3BucketName
+        savesettings(app_settings, app_type + '_settings.json')
+
+# DO NOT USE YET
+def setup_instance_role():
+    """
+    Creates IAM instance role that allows writing to webserver logging bucket.
+    TODO: Needs to be transactional.
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings('app')
+
+    BUCKET_POLICY = """{
+    "Statement":[{
+        "Effect":"Allow",
+        "Action":["s3:*"],
+        "Resource":["arn:aws:s3:::%s"]
+        }
+    ]}""" % app_settings["DOMAIN_NAME"] + "-webserver-logs"
+    iam = connect_to_iam()
+    try:
+        iam.create_instance_profile('myinstanceprofile')
+        iam.create_role('s3loggingRole')
+        iam.add_role_to_instance_profile('myinstanceprofile', 's3loggingRole')
+        iam.put_role_policy('s3loggingRole', 's3loggingPolicy', BUCKET_POLICY)
+    except Exception:
+        iam.remove_role_from_instance_profile('myinstanceprofile', 's3loggingRole')
+        iam.delete_role_policy('s3loggingRole', 's3loggingPolicy')
+        iam.list_role_policies('s3loggingRole')
+        iam.delete_role('s3loggingRole')
+        iam.delete_instance_profile('myinstanceprofile')
+        raise
+
 def load_aws_cfg():
     try:
         config = aws.read_config_file('aws.cfg')
@@ -834,7 +915,7 @@ def load_git_cfg():
     except Exception as error:
         print "git.cfg not found. %s" % error
         return 1
-
+    
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
     try:
@@ -867,11 +948,15 @@ def migrate(app_type):
 
 def install_web(app_type):
     "Install web serving components"
-
     try:
         app_settings
     except NameError:
         app_settings = loadsettings(app_type)
+    
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
 
@@ -889,6 +974,23 @@ def install_web(app_type):
         sudo('cp ./config/{app_type}-uwsgi.xml /etc/uwsgi/'.format(app_type=app_type))
         sudo('cp ./config/nginx.conf /etc/nginx/')
         sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
+        try:
+            app_settings["S3_LOGGING_BUCKET"]
+        except KeyError:
+            print "calling setup_s3_logging_bucket: " + app_type
+            setup_s3_logging_bucket(app_type)
+            app_settings = loadsettings(app_type)
+        sudo('mkdir -p /root/logrotate')
+        # make logrotate sync each app individually
+        sudo('mv ./config/root-crontab ./config/nginx-logrotate /root/logrotate/')
+        sudo('mv ./config/s3cfg /root/.s3cfg; chown root:root /root/.s3cfg ; chmod 600 /root/.s3cfg')
+        with settings(hide('running')):
+            sudo('sed -i -e "s:<S3_LOGGING_BUCKET>:{s3_logging_bucket}/{host_name}:g" /root/logrotate/nginx-logrotate'.format(s3_logging_bucket=app_settings["S3_LOGGING_BUCKET"],
+                                                                                                                              host_name=app_settings["HOST_NAME"]))
+            sudo('sed -i -e "s:<ACCESS_KEY>:{access_key}:g" -e "s:<ACCESS_TOKEN>:{access_token}:g" /root/.s3cfg'.format(access_key=aws_cfg.get('aws', 'access_key_id'), 
+                                                                                                                        access_token=aws_cfg.get('aws', 'secret_access_key')))
+        # update crontab to run each app logrotate
+        sudo('crontab -u root /root/logrotate/root-crontab')
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 def install_localdb_server(name, db_type):

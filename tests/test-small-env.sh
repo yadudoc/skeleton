@@ -19,6 +19,8 @@ echo "starting django skeleton project..."
 pip install django==1.5.1
 django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab $project_name
 cd $project_name
+# development
+#rcp ~/src/expa/git/skeleton/fabfile.py ./ ; sed -i -e "s:{{project_name}}:${project_name}:g" fabfile.py
 rcp ${config_dir}/aws.cfg ${config_dir}/git.cfg ${config_dir}/keys ./
 pip install -r requirements/local.txt
 
