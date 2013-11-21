@@ -529,13 +529,14 @@ def localdev():
     try:
         gis_settings
     except NameError:
-        gis_settings = loadsettings('core')
+        gis_settings = loadsettings('gis')
 
     app_settings["REQUIREMENTSFILE"] = 'local'
     core_settings["REQUIREMENTSFILE"] = 'local'
     gis_settings["REQUIREMENTSFILE"] = 'local'
     savesettings(app_settings,'app_settings.json')
     savesettings(core_settings,'core_settings.json')
+    savesettings(gis_settings,'gis_settings.json')
     env.user = 'vagrant'
     env.group = 'vagrant'
     env.target = 'dev'
