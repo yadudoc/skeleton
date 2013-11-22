@@ -997,7 +997,7 @@ def install_web(app_type):
             sudo("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
                 -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
                 -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
-                -e 's:<AWS_ACCESS_KEY_ID>:{aws_access_key_id}:g' -e 's:<AWS_SECRET_ACCESS_KEY>:{aws_secret_access_key}:g' -e 's:<AWS_STORAGE_BUCKET_NAME>:{aws_storage_bucket_name}:g \
+                -e 's:<AWS_ACCESS_KEY_ID>:{aws_access_key_id}:g' -e 's:<AWS_SECRET_ACCESS_KEY>:{aws_secret_access_key}:g' -e 's:<AWS_STORAGE_BUCKET_NAME>:{aws_storage_bucket_name}:g' \
                 /etc/uwsgi/{app_name}-uwsgi.xml".format(dbname=app_settings["DATABASE_NAME"], dbuser=app_settings["DATABASE_USER"],
                                                                        dbpass=app_settings["DATABASE_PASS"], dbhost=app_settings["DATABASE_HOST"],
                                                                        dbport=app_settings["DATABASE_PORT"], djangosecretkey=app_settings["DJANGOSECRETKEY"],
