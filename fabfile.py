@@ -961,7 +961,8 @@ def install_web(app_type):
         aws_cfg = load_aws_cfg()
 
     sudo('mkdir -p {path}/tmp/ {path}/pid/ {path}/sock/'.format(path=app_settings["PROJECTPATH"]), warn_only=True)
-    sudo('mkdir -p /var/log/nginx/{host_name}'.format(host_name=app_settings["HOST_NAME"]))
+    sudo('mkdir -p /var/log/nginx/{host_name}; \
+          chown www-data /var/log/nginx/{host_name}'.format(host_name=app_settings["HOST_NAME"]))
 
     install_package('nginx')
     if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
