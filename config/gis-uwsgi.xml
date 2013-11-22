@@ -17,5 +17,8 @@
   <env>DBPASS=<DBPASS></env>
   <env>DBHOST=<DBHOST></env>
   <env>DBPORT=<DBPORT></env>
-  <env>DOMAIN_NAME=<DOMAIN_NAME></env>  
+  <env>DOMAIN_NAME=<DOMAIN_NAME></env> 
+  <env>AWS_ACCESS_KEY_ID=<AWS_ACCESS_KEY_ID></env> 
+  <env>AWS_SECRET_ACCESS_KEY=<AWS_SECRET_ACCESS_KEY></env> 
+  <env>AWS_STORAGE_BUCKET_NAME=<AWS_STORAGE_BUCKET_NAME></env> 
 </uwsgi>
