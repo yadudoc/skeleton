@@ -11,29 +11,29 @@ config_dir = '~/tmp/configs'
 config_dir = os.path.expanduser(config_dir)
 config_dir = os.path.expandvars(config_dir)
 rcp = 'rsync -a --partial --progress '
-smallstack = """fab create_ec2:expatest-small-1
-                    bootstrap:expatest-small-1,core
-                    bootstrap:expatest-small-1,gis
-                    bootstrap:expatest-small-1,blog
-                    deployapp:expatest-small-1,core
-                    deployapp:expatest-small-1,gis
-                    deployapp:expatest-small-1,app
+smallstack = """fab create_ec2:expatest-small-1 \
+                    bootstrap:expatest-small-1,core \
+                    bootstrap:expatest-small-1,gis \
+                    bootstrap:expatest-small-1,blog \
+                    deployapp:expatest-small-1,core \
+                    deployapp:expatest-small-1,gis \
+                    deployapp:expatest-small-1,app \
                     deploywp:expatest-small-1"""
 
-fullstack = """fab create_rds:expacore-db-1,core,postgres
-                   create_rds:expagis-db-1,gis,postgres
-                   create_rds:expablog-db-1,blog,mysql
-                   create_rds:expatest-db-1,app,postgres
-                   create_ec2:expacore-full-1
-                   create_ec2:expagis-full-1
-                   create_ec2:expatest-full-1
-                   bootstrap:expacore-full-1,core
-                   bootstrap:expacore-full-1,blog
-                   bootstrap:expagis-full-1,gis
-                   bootstrap:expatest-full-1,app
-                   deployapp:expacore-full-1,core
-                   deployapp:expagis-full-1,gis
-                   deploywp:expacore-full-1
+fullstack = """fab create_rds:expacore-db-1,core,postgres \
+                   create_rds:expagis-db-1,gis,postgres \
+                   create_rds:expablog-db-1,blog,mysql \
+                   create_rds:expatest-db-1,app,postgres \
+                   create_ec2:expacore-full-1 \
+                   create_ec2:expagis-full-1 \
+                   create_ec2:expatest-full-1 \
+                   bootstrap:expacore-full-1,core \
+                   bootstrap:expacore-full-1,blog \
+                   bootstrap:expagis-full-1,gis \
+                   bootstrap:expatest-full-1,app \
+                   deployapp:expacore-full-1,core \
+                   deployapp:expagis-full-1,gis \
+                   deploywp:expacore-full-1 \
                    deployapp:expatest-full-1,app"""
 
 #----------HELPER FUNCTIONS-----------
@@ -55,6 +55,9 @@ try:
     os.mkdir(test_root)
 except OSError:
     pass
+
+# Cleanup previous settings files
+#local('rm ./*_settings.json')
 
 print "creating venv %s..." % envdir
 local('virtualenv %s' % envdir)

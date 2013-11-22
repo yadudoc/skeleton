@@ -373,6 +373,7 @@ def bootstrap(name, app_type):
     install_package(' '.join(package_list))
     with settings(hide('stdout')):
         sudo('apt-get -qq -y --force-yes remove s3cmd')
+        sudo('apt-get -qq -y upgrade')
     sudo('pip install -q --upgrade s3cmd')
 
     if app_settings["DATABASE_HOST"] == 'localhost':
@@ -1058,7 +1059,7 @@ def collectremote(name, app_type, release=None):
         app_settings = loadsettings(app_type)
 
     with cd(app_settings["PROJECTPATH"]):
-        run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
+        run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --settings=settings.production --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
 
 def collectlocal():
     """
