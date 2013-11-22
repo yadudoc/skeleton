@@ -14,10 +14,10 @@ missingok
 
 copytruncate
 
-/var/log/nginx/*.log {
+/var/log/nginx/*.log /var/log/nginx/*/*.log {
 sharedscripts
 postrotate
 test ! -f /var/run/nginx.pid || kill -USR1 `cat /var/run/nginx.pid`
-/usr/local/bin/s3cmd --config=/root/.s3cfg sync /var/log/nginx/*.bz2 s3://<S3_LOGGING_BUCKET>
+/usr/local/bin/s3cmd --config=/root/.s3cfg --include=*.bz2 --exclude=* sync /var/log/nginx/* s3://<S3_LOGGING_BUCKET>
 endscript
 }
