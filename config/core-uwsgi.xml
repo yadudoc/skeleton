@@ -10,4 +10,12 @@
   <buffer-size> 32768</buffer-size>
   <master/>
   <harakiri>360</harakiri>  
+  <env>DJANGO_SETTINGS_MODULE=settings.production</env>
+  <env>SECRET_KEY=<DJANGOSECRETKEY></env>
+  <env>DBNAME=<DBNAME></env>
+  <env>DBUSER=<DBUSER></env>
+  <env>DBPASS=<DBPASS></env>
+  <env>DBHOST=<DBHOST></env>
+  <env>DBPORT=<DBPORT></env>
+  <env>DOMAIN_NAME=<DOMAIN_NAME></env>
 </uwsgi>

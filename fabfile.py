@@ -439,17 +439,10 @@ def deployapp(name, app_type):
         try:
             env.development
         except AttributeError:
-            run('sed -i -e "s:settings\.local:settings\.production:g" releases/{release}/{app_name}/manage.py'.format(app_name=app_settings["APP_NAME"], release=release))
             with settings(hide('running', 'stdout'), warn_only=True):
-                run("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
-                    -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
-                    -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
-                    releases/{release}/{app_name}/settings/site_settings.py releases/{release}/config/*".format(dbname=app_settings["DATABASE_NAME"], dbuser=app_settings["DATABASE_USER"],
-                                                                                                                dbpass=app_settings["DATABASE_PASS"], dbhost=app_settings["DATABASE_HOST"],
-                                                                                                                dbport=app_settings["DATABASE_PORT"], djangosecretkey=app_settings["DJANGOSECRETKEY"],
-                                                                                                                domain_name=app_settings["DOMAIN_NAME"], release=release, app_name=app_settings["APP_NAME"],
-                                                                                                                projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
-
+                run("sed -i -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' \
+                    releases/{release}/config/*".format(release=release, app_name=app_settings["APP_NAME"], 
+                                                        projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
     symlink_current_release(release, app_type)
     install_requirements(release, app_type)
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore', 'expa_gis'):
@@ -973,13 +966,17 @@ def install_web(app_type):
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
         sudo('cp ./config/uwsgi /etc/init.d/uwsgi')
         sudo('if [ ! -d /etc/uwsgi ]; then mkdir /etc/uwsgi ; fi')
-        sudo('cp ./config/{app_type}-uwsgi.xml /etc/uwsgi/'.format(app_type=app_type))
+        sudo('cp ./config/{app_type}-uwsgi.xml /etc/uwsgi/{app_name}-uwsgi.xml; \
+              chown root:root /etc/uwsgi/{app_name}-uwsgi.xml; \
+              chmod 600 /etc/uwsgi/{app_name}-uwsgi.xml'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
+
         sudo('cp ./config/nginx.conf /etc/nginx/')
-        sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
+        sudo('cp ./config/{app_type}-nginx.conf /etc/nginx/sites-enabled/{app_name}-nginx.conf; \
+              chown root:root /etc/nginx/sites-enabled/{app_name}-nginx.conf; \
+              chmod 600 /etc/nginx/sites-enabled/{app_name}-nginx.conf'.format(app_type=app_type, app_name=app_settings["APP_NAME"]))
         try:
             app_settings["S3_LOGGING_BUCKET"]
         except KeyError:
-            print "calling setup_s3_logging_bucket: " + app_type
             setup_s3_logging_bucket(app_type)
             app_settings = loadsettings(app_type)
         sudo('mkdir -p /root/logrotate')
@@ -989,6 +986,16 @@ def install_web(app_type):
             sudo('sed -i -e "s:<S3_LOGGING_BUCKET>:{s3_logging_bucket}/:g" /root/logrotate/nginx-logrotate'.format(s3_logging_bucket=app_settings["S3_LOGGING_BUCKET"]))
             sudo('sed -i -e "s:<ACCESS_KEY>:{access_key}:g" -e "s:<SECRET_KEY>:{secret_key}:g" /root/.s3cfg'.format(access_key=aws_cfg.get('aws', 'access_key_id'),
                                                                                                                     secret_key=aws_cfg.get('aws', 'secret_access_key')))
+            sudo("sed -i -e 's:<DBNAME>:{dbname}:g' -e 's:<DBUSER>:{dbuser}:g' -e 's:<DBPASS>:{dbpass}:g' \
+                -e 's:<DBHOST>:{dbhost}:g' -e 's:<DBPORT>:{dbport}:g' -e 's:<DJANGOSECRETKEY>:{djangosecretkey}:g' \
+                -e 's:<DOMAIN_NAME>:{domain_name}:g' -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' -e 's:<HOST_NAME>:{hostname}:g' \
+                /etc/uwsgi/{app_name}-uwsgi.xml".format(dbname=app_settings["DATABASE_NAME"], dbuser=app_settings["DATABASE_USER"],
+                                                                       dbpass=app_settings["DATABASE_PASS"], dbhost=app_settings["DATABASE_HOST"],
+                                                                       dbport=app_settings["DATABASE_PORT"], djangosecretkey=app_settings["DJANGOSECRETKEY"],
+                                                                       domain_name=app_settings["DOMAIN_NAME"], app_name=app_settings["APP_NAME"],
+                                                                       projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
+
+
         sudo('crontab -u root /root/logrotate/root-crontab')
     sudo('chmod 755 /etc/init.d/uwsgi')
 
@@ -1220,7 +1227,7 @@ def generatedefaultsettings(settingstype):
                         "DOMAIN_NAME" : "test.expa.com",
                         "HOST_NAME" : "www.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^&*()') for ii in range(64))
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*()') for ii in range(64))
                         }
     return app_settings
 
