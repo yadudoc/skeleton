@@ -1,24 +1,13 @@
 """Production settings and globals."""
 
 
-from os import environ,sys
+from os import environ
 
 from base import *
 
 # Normally you should not import ANYTHING from Django directly
 # into your settings, but ImproperlyConfigured is an exception.
 from django.core.exceptions import ImproperlyConfigured
-
-
-# Include any local settings that override the defaults.
-try:
-    execfile(DJANGO_ROOT + '/settings/site_settings.py')
-    # Hack so that the autoreload will detect changes to local_settings.py.
-    class dummymodule(str):
-        __file__ = property(lambda self: self)
-    sys.modules['site_settings'] = dummymodule(DJANGO_ROOT + '/settings/site_settings.py')
-except Exception as e:
-    print e
 
 def get_env_setting(setting):
     """ Get the environment setting or return exception """
@@ -30,8 +19,7 @@ def get_env_setting(setting):
 
 ########## HOST CONFIGURATION
 # See: https://docs.djangoproject.com/en/1.5/releases/1.5/#allowed-hosts-required-in-production
-if not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [ '.' + get_env_setting('DOMAIN_NAME') ]
 ########## END HOST CONFIGURATION
 
 ########## EMAIL CONFIGURATION
@@ -61,8 +49,16 @@ SERVER_EMAIL = EMAIL_HOST_USER
 ########## END EMAIL CONFIGURATION
 
 ########## DATABASE CONFIGURATION
-if not DATABASES:
-    DATABASES = {}
+DATABASES = {
+    'default': {
+        'ENGINE':'django.db.backends.postgresql_psycopg2',
+        'NAME': get_env_setting('DBNAME'),
+        'USER': get_env_setting('DBUSER'),
+        'PASSWORD': get_env_setting('DBPASS'),
+        'HOST': get_env_setting('DBHOST'),
+        'PORT': get_env_setting('DBPORT'),
+    }
+}
 ########## END DATABASE CONFIGURATION
 
 

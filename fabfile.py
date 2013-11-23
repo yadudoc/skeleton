@@ -8,7 +8,7 @@ from fabric.api import env, local, sudo, run, cd, prefix
 from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
-from fabric.context_managers import hide
+from fabric.context_managers import hide, shell_env
 
 #-----FABRIC TASKS-----------
 @task
@@ -451,8 +451,17 @@ def deployapp(name, app_type):
             collectremote(name, app_type, release)
             migrate(app_type)
             with settings(hide('running')):
-                run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{admin}\', \'{adminemail}\', \'{adminpass}\')" \
-                    | ./bin/python ./releases/{release}/{app_name}/manage.py shell'.format(admin=app_settings["ADMIN_USER"],
+                with shell_env(DJANGO_SETTINGS_MODULE='settings.production', 
+                               DBNAME=app_settings["DATABASE_NAME"], 
+                               DBUSER=app_settings["DATABASE_USER"],
+                               DBPASS=app_settings["DATABASE_PASS"],
+                               DBHOST=app_settings["DATABASE_HOST"],
+                               DBPORT=app_settings["DATABASE_PORT"],
+                               DOMAIN_NAME=app_settings["DOMAIN_NAME"],
+                               SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                               ):
+                    run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{admin}\', \'{adminemail}\', \'{adminpass}\')" \
+                        | ./bin/python ./releases/{release}/{app_name}/manage.py shell'.format(admin=app_settings["ADMIN_USER"],
                                                                                           adminemail=app_settings["ADMIN_EMAIL"],
                                                                                           adminpass=app_settings["ADMIN_PASS"],
                                                                                           release=release, app_name=app_settings["APP_NAME"]))
@@ -944,10 +953,19 @@ def migrate(app_type):
     with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
-            run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py syncdb --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
-            print _yellow('Running migrate...')
-            run("SECRET_KEY='{secretkey}' ../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
-            #run('../../../bin/python manage.py loaddata app/fixtures/')
+            with shell_env(DJANGO_SETTINGS_MODULE='settings.production', 
+                           DBNAME=app_settings["DATABASE_NAME"], 
+                           DBUSER=app_settings["DATABASE_USER"],
+                           DBPASS=app_settings["DATABASE_PASS"],
+                           DBHOST=app_settings["DATABASE_HOST"],
+                           DBPORT=app_settings["DATABASE_PORT"],
+                           DOMAIN_NAME=app_settings["DOMAIN_NAME"],
+                           SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                           ):
+                run("../../../bin/python manage.py syncdb  --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
+                print _yellow('Running migrate...')
+                run("../../../bin/python manage.py migrate".format(secretkey=app_settings["DJANGOSECRETKEY"]))
+                #run('../../../bin/python manage.py loaddata app/fixtures/')
 
 def install_web(app_type):
     "Install web serving components"
@@ -1059,7 +1077,16 @@ def collectremote(name, app_type, release=None):
         app_settings = loadsettings(app_type)
 
     with cd(app_settings["PROJECTPATH"]):
-        run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --settings=settings.production --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
+        with shell_env(DJANGO_SETTINGS_MODULE='settings.production', 
+                       DBNAME=app_settings["DATABASE_NAME"], 
+                       DBUSER=app_settings["DATABASE_USER"],
+                       DBPASS=app_settings["DATABASE_PASS"],
+                       DBHOST=app_settings["DATABASE_HOST"],
+                       DBPORT=app_settings["DATABASE_PORT"],
+                       DOMAIN_NAME=app_settings["DOMAIN_NAME"],
+                       SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                       ):
+            run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
 
 def collectlocal():
     """
@@ -1070,7 +1097,7 @@ def collectlocal():
     release = time.strftime('%Y%m%d%H%M%S')
     local("find . -name '*.pyc' -delete", capture=False)
     local('python ./{{project_name}}/manage.py collectstatic --noinput ')
-    local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
+    local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=*_settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
     return release
 
 def symlink_current_release(release, app_type):
