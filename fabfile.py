@@ -373,7 +373,6 @@ def bootstrap(name, app_type):
     install_package(' '.join(package_list))
     with settings(hide('stdout')):
         sudo('apt-get -qq -y --force-yes remove s3cmd')
-        sudo('apt-get -qq -y upgrade')
     sudo('pip install -q --upgrade s3cmd')
 
     if app_settings["DATABASE_HOST"] == 'localhost':
