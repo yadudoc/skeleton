@@ -1150,7 +1150,7 @@ def createlocaldb(app_type, db_type='mysql'):
             elif db_type == 'postgresql':
                 # TODO: setup a postgres db
                 with settings(hide('stdout')):
-                    sudo('psql -c "CREATE USER {dbuser} WITH PASSWORD \'{dbpass}\'"'.format(dbuser=local_app_settings["DATABASE_USER"], dbpass=local_app_settings["DATABASE_PASS"]), user='postgres', warn_only=True)
+                    sudo('psql -c "CREATE USER {dbuser} WITH PASSWORD \'{dbpass}\' CREATEDB"'.format(dbuser=local_app_settings["DATABASE_USER"], dbpass=local_app_settings["DATABASE_PASS"]), user='postgres', warn_only=True)
                     sudo('createdb {dbname}'.format(dbname=local_app_settings["DATABASE_NAME"]), user='postgres', warn_only=True)
                     sudo('psql -c "GRANT ALL PRIVILEGES ON DATABASE {dbname} to {dbuser};"'.format(dbname=local_app_settings["DATABASE_NAME"], dbuser=local_app_settings["DATABASE_USER"]), user='postgres', warn_only=True)
                     sudo('psql -c "CREATE EXTENSION postgis; CREATE EXTENSION postgis_topology;" -d {dbname}'.format(dbname=local_app_settings["DATABASE_NAME"]), user='postgres', warn_only=True)
