@@ -1259,7 +1259,7 @@ def generatedefaultsettings(settingstype):
                         "ADMIN_USER" : "coreadmin",
                         "ADMIN_EMAIL" : "coreadmin@expa.com",
                         "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*()') for ii in range(64))
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
                         }
     elif settingstype in ('expa_gis', 'gis', 'expagis'):
         app_settings = {"DATABASE_USER": "expagis",
@@ -1278,7 +1278,7 @@ def generatedefaultsettings(settingstype):
                         "ADMIN_USER" : "gisadmin",
                         "ADMIN_EMAIL" : "gisadmin@expa.com",
                         "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*()') for ii in range(64))
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
                         }
     elif settingstype == 'blog':
         app_settings = {"DATABASE_USER": "{{project_name}}_blog",
@@ -1312,7 +1312,7 @@ def generatedefaultsettings(settingstype):
                         "DOMAIN_NAME" : "test.expa.com",
                         "HOST_NAME" : "www.test.expa.com",
                         "INSTALLROOT" : "/mnt/ym",
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*()') for ii in range(64))
+                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
                         }
     return app_settings
 
