@@ -1015,8 +1015,8 @@ def install_web(app_type):
     if os.path.exists('./keys/{}.key'.format(app_settings["APP_NAME"])) and os.path.exists('./keys/{}.crt'.format(app_settings["APP_NAME"])):
         put('./keys/{}.key'.format(app_settings["APP_NAME"]), '/etc/ssl/private/', use_sudo=True)
         put('./keys/{}.crt'.format(app_settings["APP_NAME"]), '/etc/ssl/certs/', use_sudo=True)
-        sudo('chown 700 /etc/ssl/private/{}.key'.format(app_settings["APP_NAME"]))
-        sudo('chown 644 /etc/ssl/certs/{}.crt'.format(app_settings["APP_NAME"]))
+        sudo('chmod 700 /etc/ssl/private/{}.key'.format(app_settings["APP_NAME"]))
+        sudo('chmod 644 /etc/ssl/certs/{}.crt'.format(app_settings["APP_NAME"]))
 
     sudo('pip install -q uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
