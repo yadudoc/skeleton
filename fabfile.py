@@ -549,11 +549,7 @@ def localdev():
         gis_settings = loadsettings('gis')
 
     app_settings["REQUIREMENTSFILE"] = 'local'
-    core_settings["REQUIREMENTSFILE"] = 'local'
-    gis_settings["REQUIREMENTSFILE"] = 'local'
     savesettings(app_settings,'app_settings.json')
-    savesettings(core_settings,'core_settings.json')
-    savesettings(gis_settings,'gis_settings.json')
     env.user = 'vagrant'
     env.group = 'vagrant'
     env.target = 'dev'
@@ -564,8 +560,8 @@ def localdev():
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
     install_requirements()
-    deployapp(env.host_string, 'core')
-    deployapp(env.host_string, 'gis')
+    #deployapp(env.host_string, 'core')
+    #deployapp(env.host_string, 'gis')
 
 @task
 def restart(name):
