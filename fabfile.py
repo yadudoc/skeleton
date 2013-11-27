@@ -4,6 +4,7 @@ import aws, os, time, json, string, random, subprocess
 
 from contextlib import contextmanager
 
+from boto.exception import S3ResponseError
 from fabric.operations import put
 from fabric.api import env, local, sudo, run, cd, prefix
 from fabric.api import task, settings
@@ -870,17 +871,23 @@ def setup_s3_buckets(app_type):
     s3 = connect_to_s3()
     s3LogBucket = app_settings["DOMAIN_NAME"] + "-webserver-logs"
     try:
-        s3.create_bucket(s3LogBucket, policy='private')
-    except Exception, error:
-        print error
-        raise
-
-    s3StorageBucket = app_settings["DOMAIN_NAME"] + "-storage"
+        s3.get_bucket(s3LogBucket)
+    except S3ResponseError:
+        try:
+            s3.create_bucket(s3LogBucket, policy='private')
+        except Exception, error:
+            print error
+            raise
+        
+    s3StorageBucket = app_settings["DOMAIN_NAME"] + "-" + app_type + "-storage"
     try:
-        s3.create_bucket(s3StorageBucket, policy='public')
-    except Exception, error:
-        print error
-        raise
+        s3.get_bucket(s3StorageBucket)
+    except S3ResponseError:
+        try:
+            s3.create_bucket(s3StorageBucket, policy='public-read')
+        except Exception, error:
+            print error
+            raise
 
     try:
         app_settings["S3_LOGGING_BUCKET"]
