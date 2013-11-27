@@ -449,6 +449,11 @@ def deployapp(name, app_type):
                 run("sed -i -e 's:<APP_NAME>:{app_name}:g' -e 's:<PROJECTPATH>:{projectpath}:g' \
                     releases/{release}/config/*".format(release=release, app_name=app_settings["APP_NAME"], 
                                                         projectpath=app_settings["PROJECTPATH"], hostname=app_settings["HOST_NAME"]))
+    try:
+        app_settings["S3_STORAGE_BUCKET"]
+    except KeyError:
+        setup_s3_buckets(app_type)
+        app_settings = loadsettings(app_type)
     symlink_current_release(release, app_type)
     install_requirements(release, app_type)
     if app_settings["APP_NAME"] in ('expa_core', 'core', 'expacore', 'expa_gis'):
@@ -853,7 +858,7 @@ def setup_route53_dns(name, app_type):
         else:
             raise
 
-def setup_s3_logging_bucket(app_type):
+def setup_s3_buckets(app_type):
     """
     Creates the S3 bucket for webserver log syncing
     """
@@ -864,14 +869,18 @@ def setup_s3_logging_bucket(app_type):
 
     s3 = connect_to_s3()
     s3LogBucket = app_settings["DOMAIN_NAME"] + "-webserver-logs"
+    try:
+        s3.create_bucket(s3LogBucket, policy='private')
+    except Exception, error:
+        print error
+        raise
+
     s3StorageBucket = app_settings["DOMAIN_NAME"] + "-storage"
-    for bucket in [ s3LogBucket, s3StorageBucket ]:
-        try:
-            print "creating {}".format(bucket) 
-            s3.create_bucket('{}'.format(bucket), policy='private')
-        except Exception, error:
-            print error
-            raise
+    try:
+        s3.create_bucket(s3StorageBucket, policy='public')
+    except Exception, error:
+        print error
+        raise
 
     try:
         app_settings["S3_LOGGING_BUCKET"]
@@ -1021,8 +1030,8 @@ def install_web(app_type):
         try:
             app_settings["S3_LOGGING_BUCKET"]
         except KeyError:
-            setup_s3_logging_bucket(app_type)
-            app_settings = loadsettings(app_type)
+            setup_s3_buckets(app_type)
+            app_settings = loadsettings(app_type)    
         sudo('mkdir -p /root/logrotate')
         sudo('mv ./config/root-crontab ./config/nginx-logrotate /root/logrotate/')
         sudo('mv ./config/s3cfg /root/.s3cfg; chown root:root /root/.s3cfg ; chmod 600 /root/.s3cfg')
