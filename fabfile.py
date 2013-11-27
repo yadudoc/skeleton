@@ -397,7 +397,7 @@ def deployapp(name, app_type):
     if app_type in ('expa_core', 'core', 'expacore', 'expa_gis', 'gis'):
         release = time.strftime('%Y%m%d%H%M%S')
     else:
-        release = collectlocal()
+        release = collectlocal(app_type)
 
     deploypath = app_settings["PROJECTPATH"] + '/releases/' + release
 
@@ -983,11 +983,11 @@ def install_web(app_type):
           chown www-data /var/log/nginx/{host_name}'.format(host_name=app_settings["HOST_NAME"]))
 
     install_package('nginx')
-    if os.path.exists('./keys/{{project_name}}.key') and os.path.exists('./keys/{{project_name}}.crt'):
-        put('./keys/{{project_name}}.key', '/etc/ssl/private/', use_sudo=True)
-        put('./keys/{{project_name}}.crt', '/etc/ssl/certs/', use_sudo=True)
-        sudo('chown 700 /etc/ssl/private/{{project_name}}.key')
-        sudo('chown 644 /etc/ssl/certs/{{project_name}}.crt')
+    if os.path.exists('./keys/{}.key'.format(app_settings["APP_NAME"])) and os.path.exists('./keys/{}.crt'.format(app_settings["APP_NAME"])):
+        put('./keys/{}.key'.format(app_settings["APP_NAME"]), '/etc/ssl/private/', use_sudo=True)
+        put('./keys/{}.crt'.format(app_settings["APP_NAME"]), '/etc/ssl/certs/', use_sudo=True)
+        sudo('chown 700 /etc/ssl/private/{}.key'.format(app_settings["APP_NAME"]))
+        sudo('chown 644 /etc/ssl/certs/{}.crt'.format(app_settings["APP_NAME"]))
 
     sudo('pip install -q uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
@@ -1087,16 +1087,21 @@ def collectremote(name, app_type, release=None):
                        ):
             run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
 
-def collectlocal():
+def collectlocal(app_type):
     """
     Create deployable tarball.
 
     return: release number as a string
     """
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings(app_type)
+
     release = time.strftime('%Y%m%d%H%M%S')
     local("find . -name '*.pyc' -delete", capture=False)
-    local('python ./{{project_name}}/manage.py collectstatic --noinput ')
-    local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=*_settings.json --exclude=fab_hosts/* --exclude=.git --exclude={{project_name}}/media *'.format(release=release))
+    local('python ./{}/manage.py collectstatic --noinput'.format(app_settings["APP_NAME"]))
+    local('tar -cjf  {release}.tbz --exclude=keys/* --exclude=aws.cfg --exclude=*_settings.json --exclude=fab_hosts/* --exclude=.git --exclude={app_name}/media *'.format(release=release, app_name=app_settings["APP_NAME"]))
     return release
 
 def symlink_current_release(release, app_type):
@@ -1117,7 +1122,7 @@ def upload_tar_from_local(release=None, app_type='app'):
         app_settings = loadsettings(app_type)
 
     if release is None:
-        release = collectlocal()
+        release = collectlocal(app_type)
 
     run('mkdir -p {path}/releases/{release} {path}/packages'.format(path=app_settings["PROJECTPATH"], release=release))
     put('{release}.tbz'.format(release=release), '{path}/packages/'.format(path=app_settings["PROJECTPATH"], release=release))
