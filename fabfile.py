@@ -572,7 +572,7 @@ def restart(name):
 
     with settings(hide('running'), warn_only=True):
         sudo('if [ -x /etc/init.d/php5-fpm ]; then if [ "$( /etc/init.d/php5-fpm status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/php5-fpm start ; else /etc/init.d/php5-fpm reload ; fi ; fi')
-        sudo('if [ -x /etc/init.d/uwsgi ]; then if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else /etc/init.d/uwsgi restart ; fi; fi')
+        sudo('if [ -x /etc/init.d/uwsgi ]; then if [ "$( /etc/init.d/uwsgi status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/uwsgi start ; else touch /etc/uwsgi/*.xml ; fi; fi')
         sudo('if [ -x /etc/init.d/nginx ]; then if [ "$( /etc/init.d/nginx status > /dev/null 2>&1 ; echo $? )" = "3" ]; then /etc/init.d/nginx start ; else /etc/init.d/nginx reload ; fi ; fi')
 
 #----------HELPER FUNCTIONS-----------
@@ -1015,8 +1015,8 @@ def install_web(app_type):
     if os.path.exists('./keys/{}.key'.format(app_settings["APP_NAME"])) and os.path.exists('./keys/{}.crt'.format(app_settings["APP_NAME"])):
         put('./keys/{}.key'.format(app_settings["APP_NAME"]), '/etc/ssl/private/', use_sudo=True)
         put('./keys/{}.crt'.format(app_settings["APP_NAME"]), '/etc/ssl/certs/', use_sudo=True)
-        sudo('chmod 700 /etc/ssl/private/{}.key'.format(app_settings["APP_NAME"]))
-        sudo('chmod 644 /etc/ssl/certs/{}.crt'.format(app_settings["APP_NAME"]))
+        sudo('chmod 700 /etc/ssl/private/{app_name}.key; chown root:root /etc/ssl/private/{app_name}.key'.format(app_name=app_settings["APP_NAME"]))
+        sudo('chmod 644 /etc/ssl/certs/{app_name}.crt; chown root:root /etc/ssl/certs/{app_name}.crt'.format(app_name=app_settings["APP_NAME"]))
 
     sudo('pip install -q uwsgi')
     with cd('{path}/releases/current'.format(path=app_settings["PROJECTPATH"])):
