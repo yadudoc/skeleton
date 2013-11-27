@@ -395,6 +395,11 @@ def deployapp(name, app_type):
     except NameError:
         app_settings = loadsettings(app_type)
 
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
     if app_type in ('expa_core', 'core', 'expacore', 'expa_gis', 'gis'):
         release = time.strftime('%Y%m%d%H%M%S')
     else:
@@ -458,7 +463,10 @@ def deployapp(name, app_type):
                                DBHOST=app_settings["DATABASE_HOST"],
                                DBPORT=app_settings["DATABASE_PORT"],
                                DOMAIN_NAME=app_settings["DOMAIN_NAME"],
-                               SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                               SECRET_KEY=app_settings["DJANGOSECRETKEY"],
+                               AWS_ACCESS_KEY_ID=aws_cfg.get('aws', 'access_key_id'),
+                               AWS_SECRET_ACCESS_KEY=aws_cfg.get('aws', 'secret_access_key'),
+                               AWS_STORAGE_BUCKET_NAME=app_settings["S3_STORAGE_BUCKET"]
                                ):
                     run('echo "from django.contrib.auth.models import User; User.objects.create_superuser(\'{admin}\', \'{adminemail}\', \'{adminpass}\')" \
                         | ./bin/python ./releases/{release}/{app_name}/manage.py shell'.format(admin=app_settings["ADMIN_USER"],
@@ -950,6 +958,11 @@ def migrate(app_type):
     except NameError:
         app_settings = loadsettings(app_type)
 
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
     with cd('{path}/releases/current/{app_name}'.format(path=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"])):
         with settings(hide('running')):
             print _yellow('Running syncdb...')
@@ -960,7 +973,10 @@ def migrate(app_type):
                            DBHOST=app_settings["DATABASE_HOST"],
                            DBPORT=app_settings["DATABASE_PORT"],
                            DOMAIN_NAME=app_settings["DOMAIN_NAME"],
-                           SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                           SECRET_KEY=app_settings["DJANGOSECRETKEY"],
+                           AWS_ACCESS_KEY_ID=aws_cfg.get('aws', 'access_key_id'),
+                           AWS_SECRET_ACCESS_KEY=aws_cfg.get('aws', 'secret_access_key'),
+                           AWS_STORAGE_BUCKET_NAME=app_settings["S3_STORAGE_BUCKET"]
                            ):
                 run("../../../bin/python manage.py syncdb  --noinput".format(secretkey=app_settings["DJANGOSECRETKEY"]))
                 print _yellow('Running migrate...')
@@ -1076,6 +1092,11 @@ def collectremote(name, app_type, release=None):
     except NameError:
         app_settings = loadsettings(app_type)
 
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
     with cd(app_settings["PROJECTPATH"]):
         with shell_env(DJANGO_SETTINGS_MODULE='settings.production', 
                        DBNAME=app_settings["DATABASE_NAME"], 
@@ -1084,7 +1105,10 @@ def collectremote(name, app_type, release=None):
                        DBHOST=app_settings["DATABASE_HOST"],
                        DBPORT=app_settings["DATABASE_PORT"],
                        DOMAIN_NAME=app_settings["DOMAIN_NAME"],
-                       SECRET_KEY=app_settings["DJANGOSECRETKEY"]
+                       SECRET_KEY=app_settings["DJANGOSECRETKEY"],
+                       AWS_ACCESS_KEY_ID=aws_cfg.get('aws', 'access_key_id'),
+                       AWS_SECRET_ACCESS_KEY=aws_cfg.get('aws', 'secret_access_key'),
+                       AWS_STORAGE_BUCKET_NAME=app_settings["S3_STORAGE_BUCKET"]
                        ):
             run('./bin/python ./releases/{release}/{app_name}/manage.py collectstatic --noinput'.format(release=release, app_name=app_settings["APP_NAME"]))
 
