@@ -1,5 +1,21 @@
 [git]
-user_name: <GITHUB USER NAME>
-key_dir: <GITHUB SSH KEY DIR>
-core_deploy_key: <FORKED CORE REPO DEPLOY KEY FILENAME>
-gis_deploy_key: <FORKED GIS REPO DEPLOY KEY FILENAME>
+user_name: < GITHUB USER NAME >
+key_dir: < GITHUB SSH KEY DIR >
+# deploy keys should reside in the aforementioned key_dir. only keys for apps you want to deploy are necessary. the cookbooks and app section are required to deploy your app to OpsWorks
+
+[core]
+repo_url: < FORKED CORE SSH REPO URL. e.g. git@github.com/username/core.git >
+deploy_key: < FORKED CORE REPO DEPLOY KEY FILENAME >
+
+[cookbooks]
+repo_url: < FORKED COOKBOOKS SSH REPO URL. e.g. git@github.com/username/cookbooks.git >
+deploy_key: < FILENAME FOR FORKED COOKBOOKS REPO DEPLOY KEY >
+
+[app]
+repo_url: < GITHUB SSH REPO URL FOR YOUR APP. e.g. git@github.com/username/app.git >
+deploy_key: < FILENAME FOR YOUR APP REPO DEPLOY KEY >
+
+[gis]
+repo_url: < FORKED GIS SSH REPO URL. e.g. git@github.com/username/gis.git >
+deploy_key: < FORKED GIS REPO DEPLOY KEY FILENAME >
+

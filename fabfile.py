@@ -1,16 +1,44 @@
 
 import boto.ec2, boto.rds, boto.route53, boto.s3, boto.iam
-import aws, os, time, json, string, random, subprocess
+import os, time, json, string, random, subprocess
 
 from contextlib import contextmanager
+from random import choice
+from ConfigParser import SafeConfigParser
 
-from boto.exception import S3ResponseError
+from boto.exception import S3ResponseError, BotoServerError
 from fabric.operations import put
 from fabric.api import env, local, sudo, run, cd, prefix
 from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide, shell_env
+
+OPSWORKS_SERVICE_ASSUME_ROLE_POLICY = json.dumps({
+    'Statement': [{'Principal': {'Service': ['opsworks.amazonaws.com']},
+                   'Effect': 'Allow',
+                   'Action': ['sts:AssumeRole']}]})
+
+OPSWORKS_SERVICE_ROLE_POLICY = json.dumps({
+    'Statement': [{'Action': ['ec2:*', 'iam:PassRole',
+                'cloudwatch:GetMetricStatistics',
+                'elasticloadbalancing:*'],
+                'Effect': 'Allow', 
+                'Resource': ['*'] }]}
+)
+
+OPSWORKS_EC2_ASSUME_ROLE_POLICY = json.dumps({
+    'Statement': [{'Principal': {'Service': ['ec2.amazonaws.com']},
+                   'Effect': 'Allow',
+                   'Action': ['sts:AssumeRole']}]})
+
+OPWORKS_INSTANCE_THEMES = [ 'Layer_Dependent', 'Baked_Goods', 'Clouds', 'Europe_Cities', 'Fruits',
+                    'Greek_Deities_and_Titans', 'Legendary_creatures_from_Japan', 'Planets_and_Moons',
+                    'Roman_Deities', 'Scottish_Islands', 'US_Cities', 'Wild_Cats' ]
+
+OPSWORKS_CONFIG_MANAGER = {"Name": "Chef",
+                           "Version": "11.4"}
+
 
 #-----FABRIC TASKS-----------
 @task
@@ -43,7 +71,7 @@ def create_rds(name, app_type, engine_type):
     try:
         dbinstance = conn.create_dbinstance(id=name,
                                    allocated_storage=aws_cfg.get("rds", "rds_storage_size"),
-                                   instance_class=aws_cfg.get("rds", "rds_instance_size"),
+                                   instance_class=aws_cfg.get("rds", "rds_instance_type"),
                                    engine=engine_type,
                                    master_username=app_settings["DATABASE_USER"],
                                    master_password=app_settings["DATABASE_PASS"],
@@ -51,7 +79,7 @@ def create_rds(name, app_type, engine_type):
                                    security_groups=[group])
     except Exception as error:
         print _red('Error occured while provisioning the RDS instance  %s' % str(error))
-        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_size"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
+        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_type"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
         return
 
     print _yellow('Waiting for rdsInstance to start...')
@@ -178,43 +206,145 @@ def create_ec2(name, tag=None, ami=None):
     return instance.public_dns_name
 
 @task
-def create_vpc():
+def create_stack(stackName):
     """
-    Make VPC with name
+    creates an OpsWorks stack with details from app settings JSON
     """
-    bastion_hosts = aws.make_vpc()
-    for host in bastion_hosts:
-        if not os.path.isdir("fab_hosts"):
-            os.mkdir('fab_hosts')
-        hostfile = open("fab_hosts/{}.txt".format(host.name), "w")
-        hostfile.write(host.public_ip)
-        hostfile.close()
-        addtosshconfig(host.name, host.public_ip)
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings('app')
+
+
+    try:
+        core_settings
+    except NameError:
+        core_settings = loadsettings('core')
+
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+   
+    try:
+        git_cfg
+    except NameError:
+        try:
+            git_cfg = load_git_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide a github conifguration based on git.cfg-dist to proceed. %s" % error))
+            return 1
+
+    key_file_path = os.path.expanduser(git_cfg.get('git', 'key_dir')) + '/' + git_cfg.get('cookbooks', 'deploy_key')
+    key_file_path = os.path.expandvars(key_file_path)
+    with open(key_file_path, "r") as key_file:
+        cookbooks_deploy_key = key_file.read()
+
+    key_file_path = os.path.expanduser(git_cfg.get('git', 'key_dir')) + '/' + git_cfg.get('app', 'deploy_key')
+    key_file_path = os.path.expandvars(key_file_path)
+    with open(key_file_path, "r") as key_file:
+        app_deploy_key = key_file.read()
+
+
+    cookbooks_source = {"Url": "%s" % git_cfg.get('cookbooks', 'repo_url'),
+                        "Type": "git",
+                        "SshKey": cookbooks_deploy_key}
+
+    recipes = {"Setup": [ "bootstrap::default" ],
+               "Deploy": [ "app::default" ]}
+    
+    app_source = {"Url": "%s" % git_cfg.get('app', 'repo_url'),
+                "Type": "git",
+                "SshKey": app_deploy_key}
+
+    iam = connect_to_iam()
+
+    try:
+        service_role_arn = iam.create_role(role_name='aws-opsworks-service-role', assume_role_policy_document=OPSWORKS_SERVICE_ASSUME_ROLE_POLICY)['create_role_response']['create_role_result']['role']['arn']
+    except BotoServerError:
+        service_role_arn = iam.get_role(role_name='aws-opsworks-service-role')['get_role_response']['get_role_result']['role']['arn']
+    iam.put_role_policy(role_name='aws-opsworks-service-role', policy_name='aws-opsworks-service-policy', policy_document=OPSWORKS_SERVICE_ROLE_POLICY)
+
+    try:
+        iam.create_role(role_name='aws-opsworks-ec2-role', assume_role_policy_document=OPSWORKS_EC2_ASSUME_ROLE_POLICY)
+    except BotoServerError:
+        pass
+
+    try:
+        instance_profile_arn = iam.create_instance_profile('aws-opsworks-ec2-role-instance-profile')['create_instance_profile_response']['create_instance_profile_result']['instance_profile']['arn']
+    except BotoServerError:
+        instance_profile_arn = iam.get_instance_profile('aws-opsworks-ec2-role-instance-profile')['get_instance_profile_response']['get_instance_profile_result']['instance_profile']['arn']
+
+    try:
+        iam.add_role_to_instance_profile('aws-opsworks-ec2-role-instance-profile', 'aws-opsworks-ec2-role')
+    except BotoServerError, error:
+        if "InstanceSessionsPerInstanceProfile" in error.message:
+            pass
+        else:
+            print error
+            raise
+
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+
+    if stackName in [ stack['Name'] for stack in stacks['Stacks']]:
+        foundStacks = [ (stack['Name'], stack['StackId']) for stack in stacks['Stacks'] ]
+        for foundStack in foundStacks:
+            if foundStack[0] == stackName:
+                print(_red("%s: %s already exists. please choose another stack name" % (foundStack[0], foundStack[1])))
+        return 1
+
+    try:
+        stack = opsworks.create_stack(name=stackName, region=aws_cfg.get('aws', 'region'), 
+                              service_role_arn=service_role_arn, default_instance_profile_arn=instance_profile_arn,
+                              default_os='Ubuntu 12.04 LTS', hostname_theme=choice(OPWORKS_INSTANCE_THEMES), 
+                              configuration_manager=OPSWORKS_CONFIG_MANAGER, custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"]), use_custom_cookbooks=True, 
+                              custom_cookbooks_source=cookbooks_source, default_ssh_key_name=aws_cfg.get("aws", "key_name"),
+                              default_root_device_type='ebs')
+    except Exception, error:
+        print error
+        print json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': '))
+        return 1
+
+    ec2 = connect_to_ec2()
+    webserver_sg = ec2.get_all_security_groups(groupnames=['AWS-OpsWorks-Web-Server'])
+    layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"], custom_recipes=recipes,
+                                enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
+
+    app = opsworks.create_app(stack_id=stack['StackId'], name=app_settings["APP_NAME"], type='static', app_source=app_source, domains=[ app_settings["HOST_NAME"] , app_settings["DOMAIN_NAME"] ])
+    print(_green("created stack with following info"))
+    print(_yellow("stack name/id: %s/%s" % (stackName, stack['StackId'])))
+    print(_yellow("layer name/id: %s/%s" % (app_settings["APP_NAME"], layer['LayerId'])))
+    print(_yellow("app name/id: %s/%s" % (app_settings["APP_NAME"], app['AppId'])))
+    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
 
 @task
-def delete_vpc():
+def add_instance(stackName, layerName):
     """
-    Delete VPC - by default the vpc_name is 'midkemia'
+    adds an ec2 instance to an OpsWorks Stack/Layer combo
     """
     try:
         aws_cfg
     except NameError:
-        aws_cfg = load_aws_cfg()
-    bastion_hosts = []
-
-    aws.delete_vpc()
-    for section in aws_cfg.sections():
         try:
-            bastion_hosts.append(aws_cfg.get(section, "bastion_host"))
-        except Exception:
-            pass
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
 
-    for bastion_host in bastion_hosts:
-        path = './fab_hosts/' + bastion_host + '.txt'
-        public_ip = open(path).readline().strip()
-        if os.path.isfile(path):
-            os.remove(path)
-        removefromsshconfig(public_ip)
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackId = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
+    layers = opsworks.describe_layers(stack_id=stackId[0])
+    layerIds = [ layer['LayerId'] for layer in layers['Layers'] if layer['Name'] == layerName]
+
+    instance = opsworks.create_instance(stack_id=stackId[0], layer_ids=layerIds , instance_type=aws_cfg.get(aws_cfg.get('aws', 'instance_size'), 'instance_type'), )
+    instanceName = opsworks.describe_instances(instance_ids=[instance['InstanceId']])['Instances'][0]['Hostname']
+    print(_yellow("instance name/id: %s/%s" % (instanceName, instance['InstanceId'])))
 
 @task
 def terminate_ec2(name):
@@ -263,6 +393,61 @@ def terminate_rds(name):
             print(_yellow("Terminating {}".format(instance.id)))
             conn.delete_dbinstance(id=instance.id, skip_final_snapshot=True)
             print(_yellow("Terminated"))
+
+@task
+def delete_stack(stackName):
+    """
+    deletes an OpsWorks stack with details from app settings JSON
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings('app')
+
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print error
+            return 1
+
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackIds = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
+    for stackId in stackIds:
+        prompt = _green("shall we remove stack: ") + _yellow("%s/%s? ") % (stackName, str(stackId).encode('ascii', 'replace'))
+        answer = raw_input(prompt)
+        if answer.lower() == 'y':
+            apps = opsworks.describe_apps(stack_id=stackId)
+            appIds = [ app['AppId'] for app in apps['Apps'] ]
+            instances = opsworks.describe_instances(stack_id=stackId)
+            instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] ]
+            for instanceId in instanceIds:
+                opsworks.delete_instance(instance_id=instanceId, delete_elastic_ip=True, delete_volumes=True)
+            for appId in appIds:
+                opsworks.delete_app(appId)
+            opsworks.delete_stack(stackId)
+
+@task
+def getstacks():
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print error
+            return 1
+    
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    
+    print(_green("Name: StackId"))
+    for stack in stacks['Stacks']:
+        print(stack['Name'] + ": " + stack['StackId'])
+    return stacks
 
 @task
 def getec2instances():
@@ -381,25 +566,45 @@ def bootstrap(name, app_type):
         install_localdb_server(name, app_settings["DB_TYPE"])
 
 @task
+def deploy_opsworks(stackName):
+    """
+    creates an opsworks deployment for given stackName
+    """
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackIds = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
+    if stackIds != []:
+        for stackId in stackIds:
+            opsworks.create_deployment(stack_id=stackId, command={'DeploymentCommand': 'deploy'})
+
+@task
 def deployapp(name, app_type):
     """
     Deploy app_name module to instance with name alias
     """
     sethostfromname(name)
     try:
-        git_cfg
-    except NameError:
-        git_cfg = load_git_cfg()
-
-    try:
         app_settings
     except NameError:
-        app_settings = loadsettings(app_type)
+        app_settings = loadsettings('app')
 
     try:
         aws_cfg
     except NameError:
-        aws_cfg = load_aws_cfg()
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    try:
+        git_cfg
+    except NameError:
+        try:
+            git_cfg = load_git_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide a github conifguration based on git.cfg-dist to proceed. %s" % error))
+            return 1
 
     if app_type in ('expa_core', 'core', 'expacore', 'expa_gis', 'gis'):
         release = time.strftime('%Y%m%d%H%M%S')
@@ -520,9 +725,9 @@ def deploywp(name):
                                                                                                                                                         dbhost=app_settings["DATABASE_HOST"]))
             run('export PATH=/home/ubuntu/.wp-cli/bin:$PATH; wp core install --url=http://{host_name} --title="{app_name}" --admin_name={blog_admin} --admin_email={blog_admin_email} --admin_password={blog_pass}'.format(app_name=app_settings["APP_NAME"],
                                                                                                                                                                                                                          host_name=app_settings["HOST_NAME"],
-                                                                                                                                                                                                                         blog_admin=app_settings["BLOG_ADMIN"],
-                                                                                                                                                                                                                         blog_admin_email=app_settings["BLOG_ADMIN_EMAIL"],
-                                                                                                                                                                                                                         blog_pass=app_settings["BLOG_PASS"]))
+                                                                                                                                                                                                                         blog_admin=app_settings["ADMIN_USER"],
+                                                                                                                                                                                                                         blog_admin_email=app_settings["ADMIN_EMAIL"],
+                                                                                                                                                                                                                         blog_pass=app_settings["ADMIN_PASS"]))
     sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
@@ -531,7 +736,7 @@ def deploywp(name):
 @task
 def localdev():
     """
-    Deploy core and skeleton app to local vagrant. For use with vagrant up and provided VagrantFile
+    Deploy app to local vagrant. For use with vagrant up and provided VagrantFile
     """
     try:
         app_settings
@@ -548,18 +753,30 @@ def localdev():
     except NameError:
         gis_settings = loadsettings('gis')
 
-    app_settings["REQUIREMENTSFILE"] = 'local'
-    savesettings(app_settings,'app_settings.json')
     env.user = 'vagrant'
     env.group = 'vagrant'
     env.target = 'dev'
     env.development = 'true'
 
+    with settings(hide('running')):
+        sudo('echo "LANGUAGE=en_US.UTF-8" > /etc/default/locale')
+        sudo('echo "LANG=en_US.UTF-8" >> /etc/default/locale')
+        sudo('echo "LC_ALL=en_US.UTF-8" >> /etc/default/locale')
     bootstrap(env.host_string,'app')
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
     install_requirements()
+    print(_yellow("--creating db...--"))
+    createlocaldb('app', app_settings["DB_TYPE"])
+
+    with settings(hide('running')):
+        sudo('echo "alias lserver=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py runserver 0.0.0.0:8000\'" > /etc/profile.d/lserver.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
+        sudo('echo "alias lmigrate=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py migrate\'" > /etc/profile.d/lmigrate.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
+        run('if [ `grep lserver.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lserver.sh" >> ~/.bashrc ; fi')
+        run('if [ `grep lmigrate.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lmigrate.sh" >> ~/.bashrc ; fi')
+        sudo('if [ `grep "GRUB_RECORDFAIL_TIMEOUT=0" /etc/default/grub >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub && update-grub2; fi')
+    print(_green("--dev env ready. run vagrant ssh and lserver to start dev server--"))
     #deployapp(env.host_string, 'core')
     #deployapp(env.host_string, 'gis')
 
@@ -660,6 +877,18 @@ def connect_to_r53():
     return boto.route53.connect_to_region('universal',
                                           aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
                                           aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
+
+def connect_to_opsworks():
+    """
+    return an OpsWorks connection given credentials imported from config
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
+    return boto.connect_opsworks(aws_access_key_id=aws_cfg.get("aws", "access_key_id"),
+                                 aws_secret_access_key=aws_cfg.get("aws", "secret_access_key"))
 
 def setup_aws_account():
     """
@@ -865,7 +1094,7 @@ def setup_s3_buckets(app_type):
         app_settings = loadsettings(app_type)
 
     s3 = connect_to_s3()
-    s3LogBucket = app_settings["DOMAIN_NAME"].replace('.', '-') + "-webserver-logs"
+    s3LogBucket = app_settings["DOMAIN_NAME"].replace('.', '-') + "-logs"
     try:
         s3.get_bucket(s3LogBucket)
     except S3ResponseError:
@@ -889,12 +1118,14 @@ def setup_s3_buckets(app_type):
         app_settings["S3_LOGGING_BUCKET"]
     except KeyError:
         app_settings["S3_LOGGING_BUCKET"] = s3LogBucket
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_LOGGING_BUCKET_NAME"] = s3LogBucket        
         savesettings(app_settings, app_type + '_settings.json')
 
     try:
         app_settings["S3_STORAGE_BUCKET"]
     except KeyError:
         app_settings["S3_STORAGE_BUCKET"] = s3StorageBucket
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_STORAGE_BUCKET_NAME"] = s3StorageBucket
         savesettings(app_settings, app_type + '_settings.json')
 
 # DO NOT USE YET
@@ -929,24 +1160,29 @@ def setup_instance_role():
         iam.delete_instance_profile('myinstanceprofile')
         raise
 
+def read_config_file(config_file_path):
+    config = SafeConfigParser()
+    with open(config_file_path) as fp:
+        config.readfp(fp)
+    return config
+
 def load_aws_cfg():
     try:
-        config = aws.read_config_file('aws.cfg')
+        config = read_config_file('aws.cfg')
         env.key_filename = os.path.expanduser(os.path.join(config.get("aws", "key_dir"),
                                                            config.get("aws", "key_name") + ".pem"))
         return config
     except Exception as error:
-        print "aws.cfg not found. %s" % error
-        return 1
+        print(_red("---something went wrong when reading your aws.cfg file. aws access will be disabled. %s---" % error))
+        raise
 
 def load_git_cfg():
     try:
-        #git_cfg = Config(open('git.cfg'))
-        git_cfg = aws.read_config_file('git.cfg')
+        git_cfg = read_config_file('git.cfg')
         return git_cfg
     except Exception as error:
-        print "git.cfg not found. %s" % error
-        return 1
+        print(_red("---something went wrong when reading your git.cfg file. github access will be disabled. %s---" % error))
+        raise
     
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
@@ -1238,79 +1474,107 @@ def loadsettings(app_type):
     return settingsjson
 
 def generatedefaultsettings(settingstype):
+    install_root = '/mnt/ym'
+    database_host = 'localhost'
+    database_port = '5432'
+    database_type = 'postgresql'
+    domain_name = 'test.expa.com'
+
     if settingstype in ('expa_core', 'core', 'expacore'):
-        app_settings = {"DATABASE_USER" : "expacore",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME" : "expa_core",
-                        "DATABASE_NAME" : "expacore",
-                        "DATABASE_HOST" : "localhost",
-                        "DATABASE_PORT" : "5432",
-                        "DB_TYPE" : "postgresql",
-                        "PROJECTPATH" : "/mnt/ym/expacore",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "test.expa.com",
-                        "HOST_NAME" : "core.test.expa.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "ADMIN_USER" : "coreadmin",
-                        "ADMIN_EMAIL" : "coreadmin@expa.com",
-                        "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
-                        }
+        database_user = 'expacore'
+        database_name = 'expacore'
+
+        fqdn = 'core.test.expa.com'
+        app_name = 'expa_core'  
+        admin_user = 'coreadmin'
+        admin_email = 'coreadmin@expa.com'
     elif settingstype in ('expa_gis', 'gis', 'expagis'):
-        app_settings = {"DATABASE_USER": "expagis",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "expa_gis",
-                        "DATABASE_NAME": "expagis",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "5432",
-                        "DB_TYPE" : "postgresql",
-                        "PROJECTPATH" : "/mnt/ym/expagis",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "test.expa.com",
-                        "HOST_NAME" : "gis.test.expa.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "ADMIN_USER" : "gisadmin",
-                        "ADMIN_EMAIL" : "gisadmin@expa.com",
-                        "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
-                        }
+        database_user = 'expagis'
+        database_name = 'expagis'
+
+        fqdn = 'gis.test.expa.com'
+        app_name = 'expa_gis'  
+        admin_user = 'gisadmin'
+        admin_email = 'gisadmin@expa.com'
+        
     elif settingstype == 'blog':
-        app_settings = {"DATABASE_USER": "{{project_name}}_blog",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "blog",
-                        "DATABASE_NAME": "blog",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "3306",
-                        "DB_TYPE" : "mysql",
-                        "PROJECTPATH" : "/mnt/ym/blog",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "test.expa.com",
-                        "HOST_NAME" : "blog.test.expa.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "BLOG_ADMIN" : "{{project_name}}_admin",
-                        "BLOG_ADMIN_EMAIL" : "{{project_name}}_admin@{{project_name}}.com",
-                        "BLOG_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16))
-                        }
+        database_user = 'expablog'
+        database_name = 'expablog'
+        database_port = '3306'
+        database_type = 'mysql'
+
+        fqdn = 'blog.test.expa.com'
+        app_name = 'blog'  
+        admin_user = 'expablog_admin'
+        admin_email = 'expablog_admin@expa.com'
     else:
-        app_settings = {"DATABASE_USER": "{{project_name}}",
-                        # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
-                        "DATABASE_PASS": ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32)),
-                        "APP_NAME": "{{project_name}}",
-                        "DATABASE_NAME": "{{project_name}}",
-                        "DATABASE_HOST": "localhost",
-                        "DATABASE_PORT": "5432",
-                        "DB_TYPE" : "postgresql",
-                        "PROJECTPATH" : "/mnt/ym/{{project_name}}",
-                        "REQUIREMENTSFILE" : "production",
-                        "DOMAIN_NAME" : "test.expa.com",
-                        "HOST_NAME" : "www.test.expa.com",
-                        "INSTALLROOT" : "/mnt/ym",
-                        "DJANGOSECRETKEY" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
-                        }
-    return app_settings
+        database_user = 'app'
+        database_name = 'app'
+
+        fqdn = 'app.test.expa.com'
+        app_name = 'app'
+        admin_user = 'app_admin'
+        admin_email = 'app_admin@expa.com'
+
+
+    print(_green("please enter details for app_type %s" % settingstype))
+    install_root = raw_input('install root[%s]: ' % install_root ) or install_root
+    database_name = raw_input('db name[%s]: ' % database_name) or database_name
+    database_user = raw_input('db user[%s]: ' % database_user) or database_user
+    # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+    database_pass = raw_input('db password[random]: ') or ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
+    
+    fqdn = raw_input('fqdn for app[%s]: ' % fqdn) or fqdn
+    domain_name = raw_input('base domain for app[%s]: ' % domain_name) or domain_name
+    if app_name is None:
+        app_name = raw_input('django app name[%s]: ' % app_name) or app_name
+    admin_user = raw_input('admin user[%s]: ' % admin_user) or admin_user
+    admin_email = raw_input('admin user email[%s]: ' % admin_email) or admin_email
+    
+    projectpath = install_root + '/' + app_name
+    requirementsfile = 'production'
+    djangosecretkey = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
+
+    settingsjson = {"DATABASE_USER" : database_user,
+                    # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
+                    "DATABASE_PASS" : database_pass,
+                    "APP_NAME" : app_name,
+                    "DATABASE_NAME" : database_name,
+                    "DATABASE_HOST" : database_host,
+                    "DATABASE_PORT" : database_port,
+                    "DB_TYPE" : database_type,
+                    "PROJECTPATH" : projectpath, 
+                    "REQUIREMENTSFILE" : requirementsfile,
+                    "HOST_NAME" : fqdn,
+                    "DOMAIN_NAME": domain_name,
+                    "INSTALLROOT" : install_root,
+                    "ADMIN_USER" : admin_user,
+                    "ADMIN_EMAIL" : admin_email,
+                    "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
+                    "DJANGOSECRETKEY" : djangosecretkey,
+                    "OPSWORKS_CUSTOM_JSON": {'deploy': {
+                                                'app': {
+                                                  'environment_variables': {
+                                                    'DJANGO_SETTINGS_MODULE': requirementsfile,
+                                                    'NEWRELIC_ENVIRONMENT': '',
+                                                    'DBNAME': database_name,
+                                                    'DBUSER': database_user,
+                                                    'DBPASS': database_pass,
+                                                    'DBHOST': database_host,
+                                                    'DBPORT': database_port,
+                                                    'DOMAIN_NAME': domain_name,
+                                                    'SECRET_KEY': djangosecretkey,
+                                                    'AWS_ACCESS_KEY_ID': '',
+                                                    'AWS_SECRET_ACCESS_KEY': '',
+                                                    'AWS_STORAGE_BUCKET_NAME': '',
+                                                    'AWS_LOGGING_BUCKET_NAME': '',
+                                                  }
+                                                }
+                                              }
+                                            }
+                    }
+    #print json.dumps(settingsjson, sort_keys=True, indent=4, separators=(',', ': '))
+    return settingsjson
 
 def addtosshconfig(name, dns):
     """
