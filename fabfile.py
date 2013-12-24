@@ -649,7 +649,6 @@ def bootstrap(name, app_type):
 def deploy_opsworks(stackName, command):
     """
     creates an opsworks deployment for given stackName and command
-    TODO: wait for deployment to complete and return status
     """
     deploymentCommand = {
         'Name': '%s' % command 
@@ -673,7 +672,10 @@ def deploy_opsworks(stackName, command):
         print(_yellow("deployment: %s: %s" % (deployment['DeploymentId'], status)))
         time.sleep(10)
         status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
-    print(_green("deployment %s: %s" % (deployment['DeploymentId'], status)))
+    if status != 'successful':
+        print(_red("deployment %s: %s" % (deployment['DeploymentId'], status)))
+    else:
+        print(_green("deployment %s: %s" % (deployment['DeploymentId'], status)))
     return deployment
 
 @task
