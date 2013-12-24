@@ -11,7 +11,9 @@ key_name:
 # group_name: default security group for one off instances. we will create this if it does not exist
 group_name:
 # ops_works_instance_size: what size do you want your opsworks instances? micro is not a valid opsworks choice as we are using ebs. e.g. small/large
-opsworks_instance_size:
+instance_size:
+# opsworks_public_key: filename of your desired key pair for use in connecting to OpsWorks instances. should exist in key_dir defined above
+opsworks_public_key: 
 ssh_port: 22
 
 [rds]

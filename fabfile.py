@@ -7,6 +7,7 @@ from random import choice
 from ConfigParser import SafeConfigParser
 
 from boto.exception import S3ResponseError, BotoServerError
+from boto.opsworks.exceptions import ValidationException
 from fabric.operations import put
 from fabric.api import env, local, sudo, run, cd, prefix
 from fabric.api import task, settings
@@ -42,7 +43,7 @@ OPSWORKS_CONFIG_MANAGER = {"Name": "Chef",
 
 #-----FABRIC TASKS-----------
 @task
-def create_rds(name, app_type, engine_type):
+def create_rds(name, app_type, engine_type=None, security_groups=None):
     """
     Launch an RDS instance with name provided
 
@@ -58,29 +59,34 @@ def create_rds(name, app_type, engine_type):
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    conn = connect_to_rds()
+    rds = connect_to_rds()
 
     try:
-        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
-    except conn.ResponseError, error:
+        groups = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))
+    except rds.ResponseError, error:
         setup_aws_account()
-        group = conn.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))[0]
+        groups = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))
+
+    if security_groups is not None:
+        groups = groups.append(security_groups)
+
+    if engine_type is None:
+        engine_type = app_settings["DB_TYPE"]
 
     print(_green("Creating RDS instance {name}...".format(name=name)))
 
     try:
-        dbinstance = conn.create_dbinstance(id=name,
+        dbinstance = rds.create_dbinstance(id=name,
                                    allocated_storage=aws_cfg.get("rds", "rds_storage_size"),
                                    instance_class=aws_cfg.get("rds", "rds_instance_type"),
                                    engine=engine_type,
                                    master_username=app_settings["DATABASE_USER"],
                                    master_password=app_settings["DATABASE_PASS"],
                                    db_name=app_settings["DATABASE_NAME"],
-                                   security_groups=[group])
+                                   security_groups=groups)
     except Exception as error:
         print _red('Error occured while provisioning the RDS instance  %s' % str(error))
-        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_type"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], group
-        return
+        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_type"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], groups
 
     print _yellow('Waiting for rdsInstance to start...')
     status = dbinstance.update()
@@ -97,6 +103,8 @@ def create_rds(name, app_type, engine_type):
 
     app_settings["DATABASE_HOST"] = dbhost
     app_settings["DATABASE_PORT"] = dbport
+    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["DBHOST"] = dbhost
+    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["DBPORT"] = dbport
     savesettings(app_settings, app_type + '_settings.json')
 
     return str(dbinstance.endpoint)
@@ -206,20 +214,17 @@ def create_ec2(name, tag=None, ami=None):
     return instance.public_dns_name
 
 @task
-def create_stack(stackName):
+def create_stack(stackName, app_type):
     """
     creates an OpsWorks stack with details from app settings JSON
     """
+    if app_type in [ 'core', 'expacore', 'expa_core' ]:
+        app_type = 'core'
+
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings('app')
-
-
-    try:
-        core_settings
-    except NameError:
-        core_settings = loadsettings('core')
+        app_settings = loadsettings(app_type)
 
     try:
         aws_cfg
@@ -239,57 +244,47 @@ def create_stack(stackName):
             print(_red("error loading config. please provide a github conifguration based on git.cfg-dist to proceed. %s" % error))
             return 1
 
+    stackName = stackName.lower()
     key_file_path = os.path.expanduser(git_cfg.get('git', 'key_dir')) + '/' + git_cfg.get('cookbooks', 'deploy_key')
     key_file_path = os.path.expandvars(key_file_path)
     with open(key_file_path, "r") as key_file:
         cookbooks_deploy_key = key_file.read()
 
-    key_file_path = os.path.expanduser(git_cfg.get('git', 'key_dir')) + '/' + git_cfg.get('app', 'deploy_key')
+    key_file_path = os.path.expanduser(git_cfg.get('git', 'key_dir')) + '/' + git_cfg.get(app_type, 'deploy_key')
     key_file_path = os.path.expandvars(key_file_path)
     with open(key_file_path, "r") as key_file:
         app_deploy_key = key_file.read()
 
+    key_file_path = os.path.expanduser(aws_cfg.get('aws', 'key_dir')) + '/' + aws_cfg.get('aws', 'opsworks_public_key')
+    key_file_path = os.path.expandvars(key_file_path)
+    with open(key_file_path, "r") as key_file:
+        opsworks_public_key = key_file.read()
 
     cookbooks_source = {"Url": "%s" % git_cfg.get('cookbooks', 'repo_url'),
                         "Type": "git",
                         "SshKey": cookbooks_deploy_key}
 
     recipes = {"Setup": [ "bootstrap::default" ],
-               "Deploy": [ "app::default" ]}
-    
-    app_source = {"Url": "%s" % git_cfg.get('app', 'repo_url'),
+               "Deploy": [ "app::default" ] }
+        
+    app_source = {"Url": "%s" % git_cfg.get(app_type, 'repo_url'),
                 "Type": "git",
                 "SshKey": app_deploy_key}
 
-    iam = connect_to_iam()
-
-    try:
-        service_role_arn = iam.create_role(role_name='aws-opsworks-service-role', assume_role_policy_document=OPSWORKS_SERVICE_ASSUME_ROLE_POLICY)['create_role_response']['create_role_result']['role']['arn']
-    except BotoServerError:
-        service_role_arn = iam.get_role(role_name='aws-opsworks-service-role')['get_role_response']['get_role_result']['role']['arn']
-    iam.put_role_policy(role_name='aws-opsworks-service-role', policy_name='aws-opsworks-service-policy', policy_document=OPSWORKS_SERVICE_ROLE_POLICY)
-
-    try:
-        iam.create_role(role_name='aws-opsworks-ec2-role', assume_role_policy_document=OPSWORKS_EC2_ASSUME_ROLE_POLICY)
-    except BotoServerError:
-        pass
-
-    try:
-        instance_profile_arn = iam.create_instance_profile('aws-opsworks-ec2-role-instance-profile')['create_instance_profile_response']['create_instance_profile_result']['instance_profile']['arn']
-    except BotoServerError:
-        instance_profile_arn = iam.get_instance_profile('aws-opsworks-ec2-role-instance-profile')['get_instance_profile_response']['get_instance_profile_result']['instance_profile']['arn']
-
-    try:
-        iam.add_role_to_instance_profile('aws-opsworks-ec2-role-instance-profile', 'aws-opsworks-ec2-role')
-    except BotoServerError, error:
-        if "InstanceSessionsPerInstanceProfile" in error.message:
-            pass
-        else:
-            print error
-            raise
-
+    arns = create_opsworks_roles()
+    
+    create_s3_buckets(app_type)
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
+
+    try:
+        opsworks.create_user_profile(iam_user_arn=arns['user_arn'], ssh_public_key=opsworks_public_key)
+    except ValidationException, error:
+        if error.message == 'User ARN already exists':
+            opsworks.update_user_profile(iam_user_arn=arns['user_arn'], ssh_public_key=opsworks_public_key)
+        else:
+            print error
+            return 1
 
     if stackName in [ stack['Name'] for stack in stacks['Stacks']]:
         foundStacks = [ (stack['Name'], stack['StackId']) for stack in stacks['Stacks'] ]
@@ -300,11 +295,21 @@ def create_stack(stackName):
 
     try:
         stack = opsworks.create_stack(name=stackName, region=aws_cfg.get('aws', 'region'), 
-                              service_role_arn=service_role_arn, default_instance_profile_arn=instance_profile_arn,
+                              service_role_arn=arns['serviceRole'], default_instance_profile_arn=arns['instanceProfile'],
                               default_os='Ubuntu 12.04 LTS', hostname_theme=choice(OPWORKS_INSTANCE_THEMES), 
-                              configuration_manager=OPSWORKS_CONFIG_MANAGER, custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"]), use_custom_cookbooks=True, 
-                              custom_cookbooks_source=cookbooks_source, default_ssh_key_name=aws_cfg.get("aws", "key_name"),
+                              configuration_manager=OPSWORKS_CONFIG_MANAGER, custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': ')),
+                              use_custom_cookbooks=True, custom_cookbooks_source=cookbooks_source, default_ssh_key_name=aws_cfg.get("aws", "key_name"),
                               default_root_device_type='ebs')
+
+        # stack = opsworks.create_stack(name=stackName, region=aws_cfg.get('aws', 'region'), 
+        #                       service_role_arn=arns['serviceRole'], default_instance_profile_arn=arns['instanceProfile'],
+        #                       default_os='Ubuntu 12.04 LTS', hostname_theme=choice(OPWORKS_INSTANCE_THEMES), 
+        #                       configuration_manager=OPSWORKS_CONFIG_MANAGER, custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': ')),
+        #                       default_ssh_key_name=aws_cfg.get("aws", "key_name"),
+        #                       default_root_device_type='ebs')
+
+        opsworks.set_permission(stack_id=stack['StackId'], iam_user_arn=arns['user_arn'], allow_ssh=True, allow_sudo=True)
+
     except Exception, error:
         print error
         print json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': '))
@@ -315,12 +320,76 @@ def create_stack(stackName):
     layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"], custom_recipes=recipes,
                                 enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
 
-    app = opsworks.create_app(stack_id=stack['StackId'], name=app_settings["APP_NAME"], type='static', app_source=app_source, domains=[ app_settings["HOST_NAME"] , app_settings["DOMAIN_NAME"] ])
+    # layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"],
+    #                             enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
+
+    app = opsworks.create_app(stack_id=stack['StackId'], name=app_settings["APP_NAME"], type='static', app_source=app_source, 
+                              domains=[ app_settings["HOST_NAME"], app_settings["DOMAIN_NAME"] ])
     print(_green("created stack with following info"))
     print(_yellow("stack name/id: %s/%s" % (stackName, stack['StackId'])))
     print(_yellow("layer name/id: %s/%s" % (app_settings["APP_NAME"], layer['LayerId'])))
     print(_yellow("app name/id: %s/%s" % (app_settings["APP_NAME"], app['AppId'])))
     add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
+
+    default_db_instance_name = stackName + '-' + app_settings["HOST_NAME"].replace('.', '-') + '-db'
+    if app_settings["DATABASE_HOST"] == "localhost":
+        create_rds(name=default_db_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+    else:
+        rds = connect_to_rds()
+        try:
+            rds.get_all_dbinstances(instance_id=app_settings["DATABASE_HOST"].split('.')[0])
+        except BotoServerError, error:
+            if error.code == 'DBInstanceNotFound':
+                create_rds(name=default_db_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+            else:
+                print error
+
+    try:
+        rds.authorize_dbsecurity_group(group_name=aws_cfg.get('aws', 'group_name'), 
+                                       ec2_security_group_owner_id=webserver_sg[0].owner_id, ec2_security_group_name='AWS-OpsWorks-Web-Server')
+    except BotoServerError, error:
+        if error.code == 'AuthorizationAlreadyExists':
+            pass
+        else:
+            print error
+
+@task 
+def stop_instance(stackName, instanceName=None):
+    """
+    stops given instance id/name in given stack id/name or stop all instances in a stack
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    stackName = stackName.lower()
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackId = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
+    if stackId == []:
+        print(_red("stack %s not found" % stackName))
+        return 1
+    instances = opsworks.describe_instances(stack_id=stackId[0])['Instances']
+    if instanceName is not None:
+        instances = [ instance for instance in instances if instance['Hostname'] == instanceName ]
+
+    ec2 = connect_to_ec2()
+    for instance in instances:
+        if 'Ec2InstanceId' in instance.keys():
+            print(_green("stopping instance %s" % instance['Hostname']))
+            opsworks.stop_instance(instance_id=instance['InstanceId'])
+            ec2Instance = ec2.get_only_instances(instance_ids=[ instance['Ec2InstanceId']])[0]
+            while ec2Instance.state != u'stopped':
+                print(_yellow("Instance state: %s" % ec2Instance.state))
+                time.sleep(10)
+                ec2Instance.update()
+        else:
+            print(_green("%s in %s already stopped" % (instance['Hostname'], stackName)))
 
 @task
 def add_instance(stackName, layerName):
@@ -336,6 +405,7 @@ def add_instance(stackName, layerName):
             print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
             return 1
 
+    stackName = stackName.lower()
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
     stackId = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
@@ -400,11 +470,6 @@ def delete_stack(stackName):
     deletes an OpsWorks stack with details from app settings JSON
     """
     try:
-        app_settings
-    except NameError:
-        app_settings = loadsettings('app')
-
-    try:
         aws_cfg
     except NameError:
         try:
@@ -413,6 +478,7 @@ def delete_stack(stackName):
             print error
             return 1
 
+    stackName = stackName.lower()
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
     stackIds = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
@@ -420,6 +486,7 @@ def delete_stack(stackName):
         prompt = _green("shall we remove stack: ") + _yellow("%s/%s? ") % (stackName, str(stackId).encode('ascii', 'replace'))
         answer = raw_input(prompt)
         if answer.lower() == 'y':
+            stop_instance(stackName=stackName)
             apps = opsworks.describe_apps(stack_id=stackId)
             appIds = [ app['AppId'] for app in apps['Apps'] ]
             instances = opsworks.describe_instances(stack_id=stackId)
@@ -443,12 +510,14 @@ def getstacks():
     
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
-    
-    print(_green("Name: StackId"))
-    for stack in stacks['Stacks']:
-        print(stack['Name'] + ": " + stack['StackId'])
+    if stacks['Stacks'] != []:
+        print(_green("Name: StackId"))
+        for stack in stacks['Stacks']:
+            print(stack['Name'] + ": " + stack['StackId'])
+    else:
+        print(_green("no stacks defined"))
     return stacks
-
+    
 @task
 def getec2instances():
     """
@@ -476,9 +545,20 @@ def getec2instances():
     # Get the public CNAMES for those instances.
     taggedhosts = []
     for host in conn.get_all_instances(instance_ids):
-        taggedhosts.extend([[i.public_dns_name, i.tags['Name'], i.instance_type] for i in host.instances if i.state=='running'])
+        for instance in host.instances:
+            if instance.state == 'running':
+                if 'opsworks:instance' in instance.tags.keys():
+                    taggedhosts.extend([[instance.public_dns_name, instance.tags['opsworks:instance'], instance.instance_type]])
+                    isOpsworksInstance = True
+                    iam = connect_to_iam()
+                    opsworks = connect_to_opsworks()
+                    user_arn = iam.get_user()['get_user_response']['get_user_result']['user']['arn']
+                    ssh_user = opsworks.describe_user_profiles(iam_user_arns=[ user_arn ])['UserProfiles'][0]['SshUsername']
+                else: 
+                    taggedhosts.extend([[instance.public_dns_name, instance.tags['Name'], instance.instance_type]])
+                    isOpsworksInstance = False
+                    ssh_user = 'ubuntu'
         taggedhosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
-    taggedhosts.sort() # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
 
     if not any(taggedhosts):
         print "no hosts found"
@@ -491,7 +571,7 @@ def getec2instances():
             print taggedhost[1] + " " + taggedhost[0]
 
     for taggedhost in taggedhosts:
-        addtosshconfig(name=taggedhost[1], dns=taggedhost[0])
+        addtosshconfig(name=taggedhost[1], dns=taggedhost[0], ssh_user=ssh_user, isOpsworksInstance=isOpsworksInstance)
 
 @task
 def getrdsinstances():
@@ -543,7 +623,7 @@ def bootstrap(name, app_type):
         if app_settings["DB_TYPE"] == 'mysql':
             package_list.extend([ 'mysql-client' ])        
             sudo('aptitude -y build-dep python-mysqldb')
-        elif app_settings["DB_TYPE"] == 'postgresql':
+        elif app_settings["DB_TYPE"] == 'postgres':
             package_list.extend([ 'postgresql-client-common' , 'postgresql-client-9.3' ])
             sudo('aptitude -y build-dep python-psycopg2')
     if app_settings["APP_NAME"] == 'expa_gis':
@@ -566,16 +646,35 @@ def bootstrap(name, app_type):
         install_localdb_server(name, app_settings["DB_TYPE"])
 
 @task
-def deploy_opsworks(stackName):
+def deploy_opsworks(stackName, command):
     """
-    creates an opsworks deployment for given stackName
+    creates an opsworks deployment for given stackName and command
+    TODO: wait for deployment to complete and return status
     """
+    deploymentCommand = {
+        'Name': '%s' % command 
+        }
+    stackName = stackName.lower()
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
     stackIds = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
     if stackIds != []:
         for stackId in stackIds:
-            opsworks.create_deployment(stack_id=stackId, command={'DeploymentCommand': 'deploy'})
+            if command == 'deploy':
+                apps = opsworks.describe_apps(stack_id=stackId)
+                appIds = [ app['AppId'] for app in apps['Apps'] ]
+                for appId in appIds:
+                    deployment = opsworks.create_deployment(stack_id=stackId, app_id=appId, command=deploymentCommand)
+            else:
+                deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
+    print(_green("deployment id: %s" % deployment['DeploymentId']))
+    status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
+    while status == 'running':
+        print(_yellow("deployment: %s: %s" % (deployment['DeploymentId'], status)))
+        time.sleep(10)
+        status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
+    print(_green("deployment %s: %s" % (deployment['DeploymentId'], status)))
+    return deployment
 
 @task
 def deployapp(name, app_type):
@@ -658,7 +757,7 @@ def deployapp(name, app_type):
     try:
         app_settings["S3_STORAGE_BUCKET"]
     except KeyError:
-        setup_s3_buckets(app_type)
+        create_s3_buckets(app_type)
         app_settings = loadsettings(app_type)
     symlink_current_release(release, app_type)
     install_requirements(release, app_type)
@@ -692,7 +791,7 @@ def deployapp(name, app_type):
     except AttributeError:
         install_web(app_type)
         restart(name)
-        setup_route53_dns(name, app_type)
+        create_route53_ec2_dns(name, app_type)
 
 @task
 def deploywp(name):
@@ -731,7 +830,7 @@ def deploywp(name):
     sudo('rm -rf /home/ubuntu/.wp-cli')
     sudo('chown -R www-data:www-data {path}'.format(path=app_settings["PROJECTPATH"]))
     restart(name)
-    setup_route53_dns(name,'blog')
+    create_route53_ec2_dns(name,'blog')
 
 @task
 def localdev():
@@ -747,11 +846,6 @@ def localdev():
         core_settings
     except NameError:
         core_settings = loadsettings('core')
-
-    try:
-        gis_settings
-    except NameError:
-        gis_settings = loadsettings('gis')
 
     env.user = 'vagrant'
     env.group = 'vagrant'
@@ -1022,7 +1116,7 @@ def remove_dns_entries(name, app_type):
             print _yellow("...dropping address record " + _green(record.name) + "...")
             zone.delete_a(record.name)
 
-def setup_route53_dns(name, app_type):
+def create_route53_ec2_dns(name, app_type):
     """
     Creates Route53 DNS entries for given ec2 instance and app_type
     """
@@ -1084,7 +1178,32 @@ def setup_route53_dns(name, app_type):
         else:
             raise
 
-def setup_s3_buckets(app_type):
+# Does nothing useful yet
+# TODO: build out layer ip retrieval and route53 record creation 
+# use elb from layer or pick an instance? 
+def create_route53_layer_dns(stackName, app_type):
+    """
+    creates dns entries for given OpsWorks layer/app_type combo
+    """
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings(app_type)
+
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackId = [ stack['StackId'] for stack in stacks if stack['Name'] == stackName ][0]
+    print 'TODO: ' + stackId
+    return True
+
+# TODO: set bucket policy to allow ec2 instance role to sync to log dir
+# TODO: set bucket policy to allow ec2 instance role to r/w storage bucket
+def create_s3_buckets(app_type):
     """
     Creates the S3 bucket for webserver log syncing
     """
@@ -1118,53 +1237,63 @@ def setup_s3_buckets(app_type):
         app_settings["S3_LOGGING_BUCKET"]
     except KeyError:
         app_settings["S3_LOGGING_BUCKET"] = s3LogBucket
-        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_LOGGING_BUCKET_NAME"] = s3LogBucket        
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["AWS_LOGGING_BUCKET_NAME"] = s3LogBucket        
         savesettings(app_settings, app_type + '_settings.json')
 
     try:
         app_settings["S3_STORAGE_BUCKET"]
     except KeyError:
         app_settings["S3_STORAGE_BUCKET"] = s3StorageBucket
-        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_STORAGE_BUCKET_NAME"] = s3StorageBucket
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["AWS_STORAGE_BUCKET_NAME"] = s3StorageBucket
         savesettings(app_settings, app_type + '_settings.json')
 
-# DO NOT USE YET
-def setup_instance_role():
+def create_opsworks_roles():
     """
-    Creates IAM instance role that allows writing to webserver logging bucket.
-    TODO: Needs to be transactional.
+    Creates IAM role/instance profiles for opsworks control
     """
-    try:
-        app_settings
-    except NameError:
-        app_settings = loadsettings('app')
-
-    BUCKET_POLICY = """{
-    "Statement":[{
-        "Effect":"Allow",
-        "Action":["s3:*"],
-        "Resource":["arn:aws:s3:::%s"]
-        }
-    ]}""" % app_settings["DOMAIN_NAME"] + "-webserver-logs"
     iam = connect_to_iam()
+
     try:
-        iam.create_instance_profile('myinstanceprofile')
-        iam.create_role('s3loggingRole')
-        iam.add_role_to_instance_profile('myinstanceprofile', 's3loggingRole')
-        iam.put_role_policy('s3loggingRole', 's3loggingPolicy', BUCKET_POLICY)
-    except Exception:
-        iam.remove_role_from_instance_profile('myinstanceprofile', 's3loggingRole')
-        iam.delete_role_policy('s3loggingRole', 's3loggingPolicy')
-        iam.list_role_policies('s3loggingRole')
-        iam.delete_role('s3loggingRole')
-        iam.delete_instance_profile('myinstanceprofile')
-        raise
+        service_role_arn = iam.create_role(role_name='aws-opsworks-service-role', assume_role_policy_document=OPSWORKS_SERVICE_ASSUME_ROLE_POLICY)['create_role_response']['create_role_result']['role']['arn']
+    except BotoServerError:
+        service_role_arn = iam.get_role(role_name='aws-opsworks-service-role')['get_role_response']['get_role_result']['role']['arn']
+    iam.put_role_policy(role_name='aws-opsworks-service-role', policy_name='aws-opsworks-service-policy', policy_document=OPSWORKS_SERVICE_ROLE_POLICY)
+
+    try:
+        iam.create_role(role_name='aws-opsworks-ec2-role', assume_role_policy_document=OPSWORKS_EC2_ASSUME_ROLE_POLICY)
+    except BotoServerError:
+        pass
+
+    try:
+        instance_profile_arn = iam.create_instance_profile('aws-opsworks-ec2-role-instance-profile')['create_instance_profile_response']['create_instance_profile_result']['instance_profile']['arn']
+    except BotoServerError:
+        instance_profile_arn = iam.get_instance_profile('aws-opsworks-ec2-role-instance-profile')['get_instance_profile_response']['get_instance_profile_result']['instance_profile']['arn']
+
+    try:
+        iam.add_role_to_instance_profile('aws-opsworks-ec2-role-instance-profile', 'aws-opsworks-ec2-role')
+    except BotoServerError, error:
+        if "InstanceSessionsPerInstanceProfile" in error.message:
+            pass
+        else:
+            print error
+            raise
+
+    user = iam.get_user()
+    user_arn = user['get_user_response']['get_user_result']['user']['arn']
+    return { "serviceRole": service_role_arn, "instanceProfile": instance_profile_arn, "user_arn": user_arn}
+
+def save_config_file(config, config_file_path):
+    with open(config_file_path, 'w') as fp:
+        config.write(fp)
 
 def read_config_file(config_file_path):
     config = SafeConfigParser()
     with open(config_file_path) as fp:
         config.readfp(fp)
     return config
+
+def save_aws_cfg(config):
+    save_config_file(config, 'aws.cfg')
 
 def load_aws_cfg():
     try:
@@ -1269,7 +1398,7 @@ def install_web(app_type):
         try:
             app_settings["S3_LOGGING_BUCKET"]
         except KeyError:
-            setup_s3_buckets(app_type)
+            create_s3_buckets(app_type)
             app_settings = loadsettings(app_type)    
         sudo('mkdir -p /root/logrotate')
         sudo('mv ./config/root-crontab ./config/nginx-logrotate /root/logrotate/')
@@ -1317,7 +1446,7 @@ def install_localdb_server(name, db_type):
             sudo('echo mysql-server-5.5 mysql-server/root_password_again password {dbpass} | debconf-set-selections'.format(dbpass=app_settings["LOCAL_DB_SUPERUSER_PASS"]))
         install_package('mysql-server-5.5')
         sudo('/etc/init.d/mysql restart')
-    elif db_type == 'postgresql':
+    elif db_type == 'postgres':
         # TODO: deal with whiptail on postgres
         package_list = [ 'postgresql-9.3', 'postgresql-contrib-9.3', 'postgresql-server-dev-9.3', 'postgis', 'postgresql-9.3-postgis', 'postgresql-9.3-postgis-2.1-scripts' ]
         install_package(' '.join(package_list))
@@ -1425,7 +1554,7 @@ def createlocaldb(app_type, db_type='mysql'):
                                                                                                                                                             dbname=local_app_settings["DATABASE_NAME"],
                                                                                                                                                             dbuser=local_app_settings["DATABASE_USER"],
                                                                                                                                                             dbpass=local_app_settings["DATABASE_PASS"]))
-            elif db_type == 'postgresql':
+            elif db_type == 'postgres':
                 # TODO: setup a postgres db
                 with settings(hide('stdout')):
                     sudo('psql -c "CREATE USER {dbuser} WITH PASSWORD \'{dbpass}\' CREATEDB"'.format(dbuser=local_app_settings["DATABASE_USER"], dbpass=local_app_settings["DATABASE_PASS"]), user='postgres', warn_only=True)
@@ -1474,11 +1603,20 @@ def loadsettings(app_type):
     return settingsjson
 
 def generatedefaultsettings(settingstype):
+    try:
+        aws_cfg
+    except NameError:
+        aws_cfg = load_aws_cfg()
+
     install_root = '/mnt/ym'
     database_host = 'localhost'
     database_port = '5432'
-    database_type = 'postgresql'
+    database_type = 'postgres'
     domain_name = 'test.expa.com'
+    notification_email = 'ops@expa.com'
+    
+    aws_access_key_id = aws_cfg.get('aws', 'access_key_id') or ''
+    aws_secret_access_key = aws_cfg.get('aws', 'secret_access_key') or ''
 
     if settingstype in ('expa_core', 'core', 'expacore'):
         database_user = 'expacore'
@@ -1530,6 +1668,7 @@ def generatedefaultsettings(settingstype):
         app_name = raw_input('django app name[%s]: ' % app_name) or app_name
     admin_user = raw_input('admin user[%s]: ' % admin_user) or admin_user
     admin_email = raw_input('admin user email[%s]: ' % admin_email) or admin_email
+    notification_email = raw_input('notification email(i.e. ops@)[%s]: ' % admin_email) or admin_email
     
     projectpath = install_root + '/' + app_name
     requirementsfile = 'production'
@@ -1553,7 +1692,8 @@ def generatedefaultsettings(settingstype):
                     "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
                     "DJANGOSECRETKEY" : djangosecretkey,
                     "OPSWORKS_CUSTOM_JSON": {'deploy': {
-                                                'app': {
+                                                app_name: {
+                                                  'notification_email': notification_email,
                                                   'environment_variables': {
                                                     'DJANGO_SETTINGS_MODULE': requirementsfile,
                                                     'NEWRELIC_ENVIRONMENT': '',
@@ -1564,19 +1704,23 @@ def generatedefaultsettings(settingstype):
                                                     'DBPORT': database_port,
                                                     'DOMAIN_NAME': domain_name,
                                                     'SECRET_KEY': djangosecretkey,
-                                                    'AWS_ACCESS_KEY_ID': '',
-                                                    'AWS_SECRET_ACCESS_KEY': '',
+                                                    'AWS_ACCESS_KEY_ID': aws_access_key_id,
+                                                    'AWS_SECRET_ACCESS_KEY': aws_secret_access_key,
                                                     'AWS_STORAGE_BUCKET_NAME': '',
-                                                    'AWS_LOGGING_BUCKET_NAME': '',
+                                                    'AWS_LOGGING_BUCKET_NAME': ''
                                                   }
                                                 }
                                               }
+                                            },
+                                            "aws": {
+                                                "access_key_id": aws_access_key_id,
+                                                "secret_access_key": aws_secret_access_key
                                             }
                     }
     #print json.dumps(settingsjson, sort_keys=True, indent=4, separators=(',', ': '))
     return settingsjson
 
-def addtosshconfig(name, dns):
+def addtosshconfig(name, dns, ssh_user='ubuntu', isOpsworksInstance=False):
     """
     Add provided hostname and dns to ssh_config with config template below
     """
@@ -1585,14 +1729,19 @@ def addtosshconfig(name, dns):
     except NameError:
         aws_cfg = load_aws_cfg()
 
+    if isOpsworksInstance == True:
+        key_file = aws_cfg.get('aws', 'opsworks_public_key')
+    else:
+        key_file = aws_cfg.get('aws', 'key_name') + '.pem'
+
     ssh_slug = """
     Host {name}
     HostName {dns}
     Port 22
-    User ubuntu
+    User {ssh_user}
     IdentityFile {key_file_path}
     ForwardAgent yes
-    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg.get("aws", "key_dir")), aws_cfg.get("aws", "key_name") + ".pem"))
+    """.format(name=name, dns=dns, key_file_path=os.path.join(os.path.expanduser(aws_cfg.get("aws", "key_dir")), key_file), ssh_user=ssh_user)
     if os.name == 'posix':
         try:
             with open(os.path.expanduser("~/.ssh/config"), "a+") as ssh_config:
