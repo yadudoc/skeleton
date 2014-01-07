@@ -491,8 +491,11 @@ def delete_stack(stackName):
             appIds = [ app['AppId'] for app in apps['Apps'] ]
             instances = opsworks.describe_instances(stack_id=stackId)
             instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] ]
+            instanceDnsNames = [ instance['PublicDns'] for instance in instances['Instances'] ]
             for instanceId in instanceIds:
                 opsworks.delete_instance(instance_id=instanceId, delete_elastic_ip=True, delete_volumes=True)
+            for instanceDnsName in instanceDnsNames:
+                removefromsshconfig(instanceDnsName)
             for appId in appIds:
                 opsworks.delete_app(appId)
             opsworks.delete_stack(stackId)
