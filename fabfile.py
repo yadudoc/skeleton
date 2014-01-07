@@ -1673,7 +1673,7 @@ def generatedefaultsettings(settingstype):
     notification_email = raw_input('notification email(i.e. ops@)[%s]: ' % admin_email) or admin_email
     
     projectpath = install_root + '/' + app_name
-    requirementsfile = 'production'
+    settingsModule = 'settings.production'
     djangosecretkey = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
 
     settingsjson = {"DATABASE_USER" : database_user,
@@ -1685,7 +1685,7 @@ def generatedefaultsettings(settingstype):
                     "DATABASE_PORT" : database_port,
                     "DB_TYPE" : database_type,
                     "PROJECTPATH" : projectpath, 
-                    "REQUIREMENTSFILE" : requirementsfile,
+                    "REQUIREMENTSFILE" : settingsModule,
                     "HOST_NAME" : fqdn,
                     "DOMAIN_NAME": domain_name,
                     "INSTALLROOT" : install_root,
@@ -1697,7 +1697,7 @@ def generatedefaultsettings(settingstype):
                                                 app_name: {
                                                   'notification_email': notification_email,
                                                   'environment_variables': {
-                                                    'DJANGO_SETTINGS_MODULE': requirementsfile,
+                                                    'DJANGO_SETTINGS_MODULE': settingsModule,
                                                     'NEWRELIC_ENVIRONMENT': '',
                                                     'DBNAME': database_name,
                                                     'DBUSER': database_user,
