@@ -1370,7 +1370,6 @@ def control_instance(stackName, action, instanceName=None):
                 time.sleep(1)
                 ec2Instance.update()
             print(_green("\n[%s]ec2 Instance state: %s" % (myinstance['Hostname'], ec2Instance.state)))
-            getec2instances()            
             spinner = Spinner(_yellow("[%s]Running OpsWorks setup " % myinstance['Hostname']))
             while myinstance['Status'] != 'running':
                 if myinstance['Status'] == 'setup_failed':
@@ -1380,6 +1379,7 @@ def control_instance(stackName, action, instanceName=None):
                 time.sleep(1)
                 myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
             print(_green("\n[%s]OpsWorks Instance state: %s" % (myinstance['Hostname'], myinstance['Status'])))
+            getec2instances()
         elif action == 'stop':
             if 'Ec2InstanceId' in instance.keys():
                 print(_green("Stopping instance %s" % instance['Hostname']))
@@ -1402,8 +1402,8 @@ def control_instance(stackName, action, instanceName=None):
                 print(_green("%s in %s already stopped" % (instance['Hostname'], stackName)))
             try:    
                 removefromsshconfig(dns=instance['PublicDns'])
-            except Exception:
-                pass
+            except Exception, e:
+                print e
     
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
