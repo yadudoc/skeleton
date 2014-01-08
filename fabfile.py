@@ -340,7 +340,7 @@ def create_stack(stackName, app_type):
     rds = connect_to_rds()
     if app_settings["DATABASE_HOST"] == "localhost":
         try:
-            create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+            create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'])
         except Exception:
             print(_red("rds creation failed. deleting stack with no RDS instance"))
             delete_stack(stackName)
@@ -349,7 +349,7 @@ def create_stack(stackName, app_type):
             rds.get_all_dbinstances(instance_id=app_settings["DATABASE_HOST"].split('.')[0])
         except BotoServerError, error:
             if error.code == 'DBInstanceNotFound':
-                create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+                create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'])
             else:
                 print error
 
