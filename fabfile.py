@@ -1371,7 +1371,7 @@ def control_instance(stackName, action, instanceName=None):
                 ec2Instance.update()
             print(_green("\n[%s]ec2 Instance state: %s" % (myinstance['Hostname'], ec2Instance.state)))
             spinner = Spinner(_yellow("[%s]Running OpsWorks setup " % myinstance['Hostname']))
-            while myinstance['Status'] != 'running':
+            while myinstance['Status'] != 'online':
                 if myinstance['Status'] == 'setup_failed':
                     print(_red("\n[%s]OpsWorks instance failed" % myinstance['Hostname']))
                     return 1
