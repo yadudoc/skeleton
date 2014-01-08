@@ -14,6 +14,7 @@ from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide, shell_env
+from progress.spinner import Spinner
 
 OPSWORKS_SERVICE_ASSUME_ROLE_POLICY = json.dumps({
     'Statement': [{'Principal': {'Service': ['opsworks.amazonaws.com']},
@@ -33,7 +34,7 @@ OPSWORKS_EC2_ASSUME_ROLE_POLICY = json.dumps({
                    'Effect': 'Allow',
                    'Action': ['sts:AssumeRole']}]})
 
-OPWORKS_INSTANCE_THEMES = [ 'Layer_Dependent', 'Baked_Goods', 'Clouds', 'Europe_Cities', 'Fruits',
+OPWORKS_INSTANCE_THEMES = [ 'Baked_Goods', 'Clouds', 'Europe_Cities', 'Fruits',
                     'Greek_Deities_and_Titans', 'Legendary_creatures_from_Japan', 'Planets_and_Moons',
                     'Roman_Deities', 'Scottish_Islands', 'US_Cities', 'Wild_Cats' ]
 
@@ -63,7 +64,7 @@ def create_rds(name, app_type, engine_type=None, security_groups=None):
 
     try:
         groups = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))
-    except rds.ResponseError, error:
+    except rds.ResponseError:
         setup_aws_account()
         groups = rds.get_all_dbsecurity_groups(groupname=aws_cfg.get("aws", "group_name"))
 
@@ -76,6 +77,7 @@ def create_rds(name, app_type, engine_type=None, security_groups=None):
     print(_green("Creating RDS instance {name}...".format(name=name)))
 
     try:
+        print groups
         dbinstance = rds.create_dbinstance(id=name,
                                    allocated_storage=aws_cfg.get("rds", "rds_storage_size"),
                                    instance_class=aws_cfg.get("rds", "rds_instance_type"),
@@ -84,27 +86,33 @@ def create_rds(name, app_type, engine_type=None, security_groups=None):
                                    master_password=app_settings["DATABASE_PASS"],
                                    db_name=app_settings["DATABASE_NAME"],
                                    security_groups=groups)
-    except Exception as error:
-        print _red('Error occured while provisioning the RDS instance  %s' % str(error))
-        print name, aws_cfg.get("rds","rds_storage_size"), aws_cfg.get("rds", "rds_instance_type"), app_settings["DATABASE_USER"], app_settings["DATABASE_PASS"], app_settings["DATABASE_NAME"], groups
+    except BotoServerError as e:
+        if e.code == "DBInstanceAlreadyExists":
+            dbinstance = rds.get_all_dbinstances(instance_id=name)[0]
+        else:
+            print _red('Error occured while provisioning the RDS instance  %s' % str(e))
+            raise e
+    except Exception, e:
+        print _red('Error occured while provisioning the RDS instance  %s' % str(e))
+        raise e
 
-    print _yellow('Waiting for rdsInstance to start...')
+    spinner = Spinner(_yellow('Waiting for rdsInstance to start... '))
     status = dbinstance.update()
     while status != 'available':
-        time.sleep(45)
+        spinner.next()
+        time.sleep(1)
         status = dbinstance.update()
-        print _yellow('Still waiting for rdsInstance to start. current status is ') + _red(status)
 
     if status == 'available':
-        print _green('New rdsInstance %s accessible at %s on port %d') % (dbinstance.id, dbinstance.endpoint[0], dbinstance.endpoint[1])
+        print _green('\nNew rdsInstance %s accessible at %s on port %d') % (dbinstance.id, dbinstance.endpoint[0], dbinstance.endpoint[1])
 
     dbhost = str(dbinstance.endpoint[0])
     dbport = str(dbinstance.endpoint[1])
 
     app_settings["DATABASE_HOST"] = dbhost
     app_settings["DATABASE_PORT"] = dbport
-    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["DBHOST"] = dbhost
-    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["DBPORT"] = dbport
+    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["DBHOST"] = dbhost
+    app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["DBPORT"] = dbport
     savesettings(app_settings, app_type + '_settings.json')
 
     return str(dbinstance.endpoint)
@@ -164,7 +172,7 @@ def create_ec2(name, tag=None, ami=None):
     group_name = aws_cfg.get("aws", "group_name")
 
     print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name, type=instance_type, ami=ami)))
-    print(_yellow("...Creating EC2 instance..."))
+    spinner = Spinner(_yellow("...Creating EC2 instance... "))
 
     conn = connect_to_ec2()
 
@@ -185,12 +193,13 @@ def create_ec2(name, tag=None, ami=None):
     conn.create_tags([instance.id], {"Name":name})
     if tag:
         instance.add_tag(tag)
+
     while instance.state != u'running':
-        print(_yellow("Instance state: %s" % instance.state))
+        spinner.next()
         time.sleep(10)
         instance.update()
 
-    print(_green("Instance state: %s" % instance.state))
+    print(_green("\nInstance state: %s" % instance.state))
     print(_green("Public dns: %s" % instance.public_dns_name))
 
     addtosshconfig(name=name, dns=instance.public_dns_name)
@@ -207,6 +216,7 @@ def create_ec2(name, tag=None, ami=None):
         try:
             sethostfromname(name)
             with settings(hide('running','stdout')):
+                env.user = 'ubuntu'
                 run('uname')
             connectivity = True
         except Exception:
@@ -301,15 +311,7 @@ def create_stack(stackName, app_type):
                               use_custom_cookbooks=True, custom_cookbooks_source=cookbooks_source, default_ssh_key_name=aws_cfg.get("aws", "key_name"),
                               default_root_device_type='ebs')
 
-        # stack = opsworks.create_stack(name=stackName, region=aws_cfg.get('aws', 'region'), 
-        #                       service_role_arn=arns['serviceRole'], default_instance_profile_arn=arns['instanceProfile'],
-        #                       default_os='Ubuntu 12.04 LTS', hostname_theme=choice(OPWORKS_INSTANCE_THEMES), 
-        #                       configuration_manager=OPSWORKS_CONFIG_MANAGER, custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': ')),
-        #                       default_ssh_key_name=aws_cfg.get("aws", "key_name"),
-        #                       default_root_device_type='ebs')
-
         opsworks.set_permission(stack_id=stack['StackId'], iam_user_arn=arns['user_arn'], allow_ssh=True, allow_sudo=True)
-
     except Exception, error:
         print error
         print json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': '))
@@ -320,27 +322,34 @@ def create_stack(stackName, app_type):
     layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"], custom_recipes=recipes,
                                 enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
 
-    # layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"],
-    #                             enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
-
+    if app_type == 'app':
+        appDomains = [ app_settings["HOST_NAME"], app_settings["DOMAIN_NAME"] ]
+    else:
+        appDomains = [ app_settings["HOST_NAME"] ]
     app = opsworks.create_app(stack_id=stack['StackId'], name=app_settings["APP_NAME"], type='static', app_source=app_source, 
-                              domains=[ app_settings["HOST_NAME"], app_settings["DOMAIN_NAME"] ])
+                              domains=appDomains)
+
     print(_green("created stack with following info"))
     print(_yellow("stack name/id: %s/%s" % (stackName, stack['StackId'])))
     print(_yellow("layer name/id: %s/%s" % (app_settings["APP_NAME"], layer['LayerId'])))
     print(_yellow("app name/id: %s/%s" % (app_settings["APP_NAME"], app['AppId'])))
     add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
+    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
 
-    default_db_instance_name = stackName + '-' + app_settings["HOST_NAME"].replace('.', '-') + '-db'
+    rds_instance_name = stackName + '-' + app_settings["HOST_NAME"].replace('.', '-') + '-db'
+    rds = connect_to_rds()
     if app_settings["DATABASE_HOST"] == "localhost":
-        create_rds(name=default_db_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+        try:
+            create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+        except Exception:
+            print(_red("rds creation failed. deleting stack with no RDS instance"))
+            delete_stack(stackName)
     else:
-        rds = connect_to_rds()
         try:
             rds.get_all_dbinstances(instance_id=app_settings["DATABASE_HOST"].split('.')[0])
         except BotoServerError, error:
             if error.code == 'DBInstanceNotFound':
-                create_rds(name=default_db_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
+                create_rds(name=rds_instance_name, app_type=app_type, engine_type=app_settings['DB_TYPE'], security_groups='AWS-OpsWorks-Web-Server')
             else:
                 print error
 
@@ -352,44 +361,10 @@ def create_stack(stackName, app_type):
             pass
         else:
             print error
-
-@task 
-def stop_instance(stackName, instanceName=None):
-    """
-    stops given instance id/name in given stack id/name or stop all instances in a stack
-    """
-    try:
-        aws_cfg
-    except NameError:
-        try:
-            aws_cfg = load_aws_cfg()
-        except Exception, error:
-            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
-            return 1
-
-    stackName = stackName.lower()
-    opsworks = connect_to_opsworks()
-    stacks = opsworks.describe_stacks()
-    stackId = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
-    if stackId == []:
-        print(_red("stack %s not found" % stackName))
-        return 1
-    instances = opsworks.describe_instances(stack_id=stackId[0])['Instances']
-    if instanceName is not None:
-        instances = [ instance for instance in instances if instance['Hostname'] == instanceName ]
-
-    ec2 = connect_to_ec2()
-    for instance in instances:
-        if 'Ec2InstanceId' in instance.keys():
-            print(_green("stopping instance %s" % instance['Hostname']))
-            opsworks.stop_instance(instance_id=instance['InstanceId'])
-            ec2Instance = ec2.get_only_instances(instance_ids=[ instance['Ec2InstanceId']])[0]
-            while ec2Instance.state != u'stopped':
-                print(_yellow("Instance state: %s" % ec2Instance.state))
-                time.sleep(10)
-                ec2Instance.update()
-        else:
-            print(_green("%s in %s already stopped" % (instance['Hostname'], stackName)))
+    if raw_input("shall we start the opsworks instance(s)? (y/n) ").lower() == "y":
+        start_instance(stackName)
+    else:
+        print(_green("use fab start_instance:%s to start the stack" % stackName))
 
 @task
 def add_instance(stackName, layerName):
@@ -440,7 +415,7 @@ def terminate_ec2(name):
                     conn.terminate_instances(instance_ids=[instance.id])
                     print(_yellow("Terminated"))
                     removefromsshconfig(instance.public_dns_name)
-                    remove_dns_entries(name, 'app')
+                    #remove_dns_entries(name, 'app')
 
 @task
 def terminate_rds(name):
@@ -454,16 +429,43 @@ def terminate_rds(name):
 
     print(_green("Started terminating {}...".format(name)))
 
-    conn = connect_to_rds()
-    for instance in conn.get_all_dbinstances(instance_id=name):
+    rds = connect_to_rds()
+    try:
+        dbinstances = rds.get_all_dbinstances(instance_id=name)
+    except BotoServerError, e:
+        if e.code == "DBInstanceNotFound":
+            print(_red(e.message))
+            return 1
+    for instance in dbinstances:
         if "terminated" in str(instance.status):
             print "instance {} is already terminated".format(instance.id)
             continue
         if raw_input("terminate {instance}? (y/n) ".format(instance=instance.id)).lower() == "y":
-            print(_yellow("Terminating {}".format(instance.id)))
-            conn.delete_dbinstance(id=instance.id, skip_final_snapshot=True)
-            print(_yellow("Terminated"))
+            spinner = Spinner(_yellow("Terminating {}".format(instance.id)))
+            if instance.status == 'available':
+                rds.delete_dbinstance(id=instance.id, skip_final_snapshot=True)
+            elif instance.status == 'deleting':
+                print(_green("instance already terminating"))
+            while instance.status == 'deleting':
+                spinner.next()
+                time.sleep(1)
+                instance.update()            
+            print(_green("Terminated"))
 
+@task
+def start_instance(stackName, instanceName=None):
+    """
+    start given instance id/name in given stack id/name or stop all instances in a stack    
+    """
+    control_instance(stackName=stackName, action='start', instanceName=instanceName)
+
+@task
+def stop_instance(stackName, instanceName=None):
+    """
+    stop given instance id/name in given stack id/name or stop all instances in a stack    
+    """
+    control_instance(stackName=stackName, action='stop', instanceName=instanceName)
+ 
 @task
 def delete_stack(stackName):
     """
@@ -491,7 +493,11 @@ def delete_stack(stackName):
             appIds = [ app['AppId'] for app in apps['Apps'] ]
             instances = opsworks.describe_instances(stack_id=stackId)
             instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] ]
-            instanceDnsNames = [ instance['PublicDns'] for instance in instances['Instances'] ]
+            instanceDnsNames = []
+            try:
+                instanceDnsNames = [ instance['PublicDns'] for instance in instances['Instances'] ]
+            except KeyError:
+                pass
             for instanceId in instanceIds:
                 opsworks.delete_instance(instance_id=instanceId, delete_elastic_ip=True, delete_volumes=True)
             for instanceDnsName in instanceDnsNames:
@@ -669,16 +675,16 @@ def deploy_opsworks(stackName, command):
                     deployment = opsworks.create_deployment(stack_id=stackId, app_id=appId, command=deploymentCommand)
             else:
                 deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
-    print(_green("deployment id: %s" % deployment['DeploymentId']))
+    spinner = Spinner(_yellow("deployment %s: running... " % deployment['DeploymentId']))
     status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
     while status == 'running':
-        print(_yellow("deployment: %s: %s" % (deployment['DeploymentId'], status)))
-        time.sleep(10)
+        spinner.next()
+        time.sleep(1)
         status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
     if status != 'successful':
-        print(_red("deployment %s: %s" % (deployment['DeploymentId'], status)))
+        print(_red("\ndeployment %s: %s" % (deployment['DeploymentId'], status)))
     else:
-        print(_green("deployment %s: %s" % (deployment['DeploymentId'], status)))
+        print(_green("\ndeployment %s: %s" % (deployment['DeploymentId'], status)))
     return deployment
 
 @task
@@ -1242,14 +1248,14 @@ def create_s3_buckets(app_type):
         app_settings["S3_LOGGING_BUCKET"]
     except KeyError:
         app_settings["S3_LOGGING_BUCKET"] = s3LogBucket
-        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["AWS_LOGGING_BUCKET_NAME"] = s3LogBucket        
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_LOGGING_BUCKET_NAME"] = s3LogBucket        
         savesettings(app_settings, app_type + '_settings.json')
 
     try:
         app_settings["S3_STORAGE_BUCKET"]
     except KeyError:
         app_settings["S3_STORAGE_BUCKET"] = s3StorageBucket
-        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_type]["environment_variables"]["AWS_STORAGE_BUCKET_NAME"] = s3StorageBucket
+        app_settings["OPSWORKS_CUSTOM_JSON"]["deploy"][app_settings["APP_NAME"]]["environment_variables"]["AWS_STORAGE_BUCKET_NAME"] = s3StorageBucket
         savesettings(app_settings, app_type + '_settings.json')
 
 def create_opsworks_roles():
@@ -1317,6 +1323,87 @@ def load_git_cfg():
     except Exception as error:
         print(_red("---something went wrong when reading your git.cfg file. github access will be disabled. %s---" % error))
         raise
+
+def control_instance(stackName, action, instanceName=None):
+    """
+    start/stop given instance id/name in given stack id/name or stop all instances in a stack
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    stackName = stackName.lower()
+    opsworks = connect_to_opsworks()
+    stacks = opsworks.describe_stacks()
+    stackId = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
+    if stackId == []:
+        print(_red("stack %s not found" % stackName))
+        return 1
+    instances = opsworks.describe_instances(stack_id=stackId[0])['Instances']
+    if instanceName is not None:
+        instances = [ instance for instance in instances if instance['Hostname'] == instanceName ]
+
+    ec2 = connect_to_ec2()
+    for instance in instances:
+        if action == 'start':
+            print(_green("starting instance: %s" % instance['Hostname']))
+            try:
+                opsworks.start_instance(instance_id=instance['InstanceId'])
+            except ValidationException:
+                pass
+            myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
+            spinner = Spinner(_yellow("[%s]Waiting for reservation " % myinstance['Hostname']))
+            while myinstance['Status'] == 'requested':
+                spinner.next()
+                time.sleep(1)
+                myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
+            print(_green("\n[%s]OpsWorks instance status: %s" % (myinstance['Hostname'], myinstance['Status'])))
+            ec2Instance = ec2.get_only_instances(instance_ids=[ myinstance['Ec2InstanceId']])[0]
+            spinner = Spinner(_yellow("[%s]Booting ec2 instance " % myinstance['Hostname']))
+            while ec2Instance.state != u'running':
+                spinner.next()
+                time.sleep(1)
+                ec2Instance.update()
+            print(_green("\n[%s]ec2 Instance state: %s" % (myinstance['Hostname'], ec2Instance.state)))
+            getec2instances()            
+            spinner = Spinner(_yellow("[%s]Running OpsWorks setup " % myinstance['Hostname']))
+            while myinstance['Status'] != 'running':
+                if myinstance['Status'] == 'setup_failed':
+                    print(_red("\n[%s]OpsWorks instance failed" % myinstance['Hostname']))
+                    return 1
+                spinner.next()
+                time.sleep(1)
+                myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
+            print(_green("\n[%s]OpsWorks Instance state: %s" % (myinstance['Hostname'], myinstance['Status'])))
+        elif action == 'stop':
+            if 'Ec2InstanceId' in instance.keys():
+                print(_green("Stopping instance %s" % instance['Hostname']))
+                opsworks.stop_instance(instance_id=instance['InstanceId'])
+                ec2Instance = ec2.get_only_instances(instance_ids=[ instance['Ec2InstanceId']])[0]
+                spinner = Spinner(_yellow("[%s]Waiting for ec2 instance to stop " % instance['Hostname']))
+                while ec2Instance.state != u'stopped':
+                    spinner.next()
+                    time.sleep(1)
+                    ec2Instance.update()
+                print(_green("\n[%s]ec2 Instance state: %s" % (instance['Hostname'], ec2Instance.state)))
+                myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
+                spinner = Spinner(_yellow("[%s]Stopping OpsWorks Instance " % instance['Hostname']))
+                while myinstance['Status'] != 'stopped':
+                    spinner.next()
+                    time.sleep(1)
+                    myinstance = opsworks.describe_instances(instance_ids=[ instance['InstanceId'] ])['Instances'][0]
+                print(_green("\n[%s]OpsWorks Instance state: %s" % (instance['Hostname'], myinstance['Status'])))
+            else:
+                print(_green("%s in %s already stopped" % (instance['Hostname'], stackName)))
+            try:    
+                removefromsshconfig(dns=instance['PublicDns'])
+            except Exception:
+                pass
     
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
@@ -1602,9 +1689,11 @@ def loadsettings(app_type):
     try:
         with open(settingsfile, "r") as settingsfile:
             settingsjson = json.load(settingsfile)
-    except Exception:
+    except IOError:
         settingsjson = generatedefaultsettings(app_type)
         savesettings(settingsjson, settingsfile)
+    except Exception, e:
+        raise e
     return settingsjson
 
 def generatedefaultsettings(settingstype):
@@ -1613,7 +1702,7 @@ def generatedefaultsettings(settingstype):
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    install_root = '/mnt/ym'
+    install_root = '/srv/www'
     database_host = 'localhost'
     database_port = '5432'
     database_type = 'postgres'
@@ -1714,12 +1803,16 @@ def generatedefaultsettings(settingstype):
                                                     'AWS_STORAGE_BUCKET_NAME': '',
                                                     'AWS_LOGGING_BUCKET_NAME': ''
                                                   }
-                                                }
+                                                },
+                                                "aws": {
+                                                    "access_key_id": aws_access_key_id,
+                                                    "secret_access_key": aws_secret_access_key
+                                                },
+                                                "newrelic": {
+                                                    "license_key": "",
+                                                    "api_key": ""
+                                                }                                                
                                               }
-                                            },
-                                            "aws": {
-                                                "access_key_id": aws_access_key_id,
-                                                "secret_access_key": aws_secret_access_key
                                             }
                     }
     #print json.dumps(settingsjson, sort_keys=True, indent=4, separators=(',', ': '))

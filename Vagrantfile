@@ -15,7 +15,7 @@ ram      = '256'
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.box = box
   config.vm.box_url = url
-  config.vm.synced_folder ".", "/mnt/ym/{{project_name}}/releases/current"
+  config.vm.synced_folder ".", "/srv/www/{{project_name}}/releases/current"
   config.vm.network :public_network
   config.vm.network "forwarded_port", guest: 8000, host: 8000
   config.vm.network "forwarded_port", guest: 8001, host: 8001
