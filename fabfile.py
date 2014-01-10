@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from random import choice
 from ConfigParser import SafeConfigParser
 
+from boto.ec2.elb import HealthCheck
 from boto.exception import S3ResponseError, BotoServerError
 from boto.opsworks.exceptions import ValidationException
 from fabric.operations import put
@@ -322,6 +323,11 @@ def create_stack(stackName, app_type):
     layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"], custom_recipes=recipes,
                                 enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
 
+    elb_name = stackName + '-elb'
+    lb = create_elb(name=elb_name, app_type=app_type)
+
+    opsworks.attach_elastic_load_balancer(elastic_load_balancer_name=lb.name, layer_id=layer['LayerId'])
+
     if app_type == 'app':
         appDomains = [ app_settings["HOST_NAME"], app_settings["DOMAIN_NAME"] ]
     else:
@@ -333,8 +339,11 @@ def create_stack(stackName, app_type):
     print(_yellow("stack name/id: %s/%s" % (stackName, stack['StackId'])))
     print(_yellow("layer name/id: %s/%s" % (app_settings["APP_NAME"], layer['LayerId'])))
     print(_yellow("app name/id: %s/%s" % (app_settings["APP_NAME"], app['AppId'])))
-    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
-    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"])
+
+    zones = random.sample([ zone.name for zone in ec2.get_all_zones() ], 2)
+
+    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"], zone=zones[0])
+    add_instance(stackName=stackName, layerName=app_settings["APP_NAME"], zone=zones[1])
 
     rds_instance_name = stackName + '-' + app_settings["HOST_NAME"].replace('.', '-') + '-db'
     rds = connect_to_rds()
@@ -367,7 +376,7 @@ def create_stack(stackName, app_type):
         print(_green("use fab start_instance:%s to start the stack" % stackName))
 
 @task
-def add_instance(stackName, layerName):
+def add_instance(stackName, layerName, zone=None):
     """
     adds an ec2 instance to an OpsWorks Stack/Layer combo
     """
@@ -387,9 +396,15 @@ def add_instance(stackName, layerName):
     layers = opsworks.describe_layers(stack_id=stackId[0])
     layerIds = [ layer['LayerId'] for layer in layers['Layers'] if layer['Name'] == layerName]
 
-    instance = opsworks.create_instance(stack_id=stackId[0], layer_ids=layerIds , instance_type=aws_cfg.get(aws_cfg.get('aws', 'instance_size'), 'instance_type'), )
+    if zone is None:
+        ec2 = connect_to_ec2()
+        zones = [ zone.name for zone in ec2.get_all_zones() ]
+        zone = choice(zones)
+    
+    instance = opsworks.create_instance(stack_id=stackId[0], layer_ids=layerIds , instance_type=aws_cfg.get(aws_cfg.get('aws', 'instance_size'), 'instance_type'), availability_zone=zone)
     instanceName = opsworks.describe_instances(instance_ids=[instance['InstanceId']])['Instances'][0]['Hostname']
-    print(_yellow("instance name/id: %s/%s" % (instanceName, instance['InstanceId'])))
+    print(_yellow("instance name/id/az: %s/%s/%s" % (instanceName, instance['InstanceId'], zone)))
+    return {"name": instanceName, "id": instance['InstanceId'], "zone": zone}
 
 @task
 def terminate_ec2(name):
@@ -493,15 +508,8 @@ def delete_stack(stackName):
             appIds = [ app['AppId'] for app in apps['Apps'] ]
             instances = opsworks.describe_instances(stack_id=stackId)
             instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] ]
-            instanceDnsNames = []
-            try:
-                instanceDnsNames = [ instance['PublicDns'] for instance in instances['Instances'] ]
-            except KeyError:
-                pass
             for instanceId in instanceIds:
                 opsworks.delete_instance(instance_id=instanceId, delete_elastic_ip=True, delete_volumes=True)
-            for instanceDnsName in instanceDnsNames:
-                removefromsshconfig(instanceDnsName)
             for appId in appIds:
                 opsworks.delete_app(appId)
             opsworks.delete_stack(stackId)
@@ -1190,11 +1198,11 @@ def create_route53_ec2_dns(name, app_type):
             raise
 
 # Does nothing useful yet
-# TODO: build out layer ip retrieval and route53 record creation 
-# use elb from layer or pick an instance? 
-def create_route53_layer_dns(stackName, app_type):
+# TODO: build out layer ip retrieval and route53 record creation
+@task 
+def create_route53_elb_dns(elb_name, app_type):
     """
-    creates dns entries for given OpsWorks layer/app_type combo
+    creates dns entries for given elb name/app_type combo
     """
     try:
         aws_cfg
@@ -1206,12 +1214,59 @@ def create_route53_layer_dns(stackName, app_type):
     except NameError:
         app_settings = loadsettings(app_type)
 
-    opsworks = connect_to_opsworks()
-    stacks = opsworks.describe_stacks()
-    stackId = [ stack['StackId'] for stack in stacks if stack['Name'] == stackName ][0]
-    print 'TODO: ' + stackId
-    return True
+    elb = connect_to_elb()
+    r53 = connect_to_r53()
 
+    lb = elb.get_all_load_balancers(load_balancer_names=elb_name)[0]
+    app_zone_name = app_settings["DOMAIN_NAME"] + "."
+    app_host_name = app_settings["HOST_NAME"] + "."
+
+    print _green("Creating DNS for " + elb_name + " and app_type " + app_type)
+    if r53.get_zone(app_zone_name) is None:
+        print _yellow("creating zone " + _green(app_zone_name))
+        zone = r53.create_zone(app_zone_name)
+    else:
+        #print _yellow("zone " + _green(app_zone_name) + _yellow(" already exists. skipping creation"))
+        zone = r53.get_zone(app_zone_name)
+
+    records = r53.get_all_rrsets(zone.id)
+
+    if app_type == 'app':
+        try:
+            change = records.add_change('CREATE', zone.name, 'A', ttl=300, alias_hosted_zone_id=lb.canonical_hosted_zone_name_id, alias_dns_name=lb.canonical_hosted_zone_name)
+            change.add_value('ALIAS %s (%s)' % (lb.canonical_hosted_zone_name, lb.canonical_hosted_zone_name_id))
+            change_id = records.commit()['ChangeResourceRecordSetsResponse']['ChangeInfo']['Id'].split('/')[-1]
+            status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']
+            spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % zone.name))
+            while status != 'INSYNC':
+                spinner.next()
+                time.sleep(1)
+                status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']
+            print(_green('\n[%s]route53 change coalesced' % zone.name))
+        except Exception as error:
+            if 'already exists' in error.message:
+                #print _yellow("address record " + _green(app_zone_name + " " + lb.canonical_hosted_zone_name) + _yellow(" already exists. skipping creation"))
+                pass
+            else:
+                raise
+
+    try:
+        change = records.add_change('CREATE', app_host_name, 'A', ttl=300, alias_hosted_zone_id=lb.canonical_hosted_zone_name_id, alias_dns_name=lb.canonical_hosted_zone_name)
+        change.add_value('ALIAS %s (%s)' % (lb.canonical_hosted_zone_name, lb.canonical_hosted_zone_name_id))
+        change_id = records.commit()['ChangeResourceRecordSetsResponse']['ChangeInfo']['Id'].split('/')[-1]
+        status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']
+        spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % app_host_name))
+        while status != 'INSYNC':
+            spinner.next()
+            time.sleep(1)
+            status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']            
+        print(_green('\n[%s]route53 change coalesced' % app_host_name))
+    except Exception as error:
+        if 'already exists' in error.message:
+            print _yellow("cname record " + _green(app_host_name) + _yellow(" already exists. skipping creation"))
+        else:
+            raise
+            
 # TODO: set bucket policy to allow ec2 instance role to sync to log dir
 # TODO: set bucket policy to allow ec2 instance role to r/w storage bucket
 def create_s3_buckets(app_type):
@@ -1292,6 +1347,67 @@ def create_opsworks_roles():
     user = iam.get_user()
     user_arn = user['get_user_response']['get_user_result']['user']['arn']
     return { "serviceRole": service_role_arn, "instanceProfile": instance_profile_arn, "user_arn": user_arn}
+
+def create_elb(name, app_type):
+    """
+    creates an elb with the given name and app settings ...duh
+    """
+    try:
+        app_settings
+    except NameError:
+        app_settings = loadsettings(app_type)
+
+    certificate_name = name + '-' + app_settings['ELB_SSL_CERT_PATH'].split('/')[-1].split('.')[0]
+    key_file_path = os.path.expanduser(app_settings['ELB_SSL_KEY_PATH'])
+    key_file_path = os.path.expandvars(key_file_path)
+    with open(key_file_path, "r") as key_file:
+        ssl_key = key_file.read()
+
+    cert_file_path = os.path.expanduser(app_settings['ELB_SSL_CERT_PATH'])
+    cert_file_path = os.path.expandvars(cert_file_path)
+    with open(cert_file_path, "r") as cert_file:
+        ssl_cert = cert_file.read()
+
+    iam = connect_to_iam()
+    elb = connect_to_elb()
+    ec2 = connect_to_ec2()
+
+    try:
+        iam.upload_server_cert(cert_name=certificate_name, cert_body=ssl_cert, private_key=ssl_key)
+    except BotoServerError, e:
+        if e.code == 'EntityAlreadyExists':
+            pass    
+    except Exception, e:
+        print e
+        raise        
+
+    cert_arn = iam.get_server_certificate(certificate_name)['get_server_certificate_response']['get_server_certificate_result']['server_certificate']['server_certificate_metadata']['arn']
+    zones = [ zone.name for zone in ec2.get_all_zones() ]
+    listeners = [(80, 8080, 'http'), (443, 8443, 'https', cert_arn)]
+    
+    try:
+        lb = elb.create_load_balancer(name=name, zones=zones, listeners=listeners)
+    except BotoServerError, e:
+        if e.code == 'CertificateNotFound':
+            # for some reason IAM returns before the cert is actually available. sleep a bit and retry
+            spinner = Spinner(_green("IAM is lame and we need to wait for the cert arn to propagate and retry... "))
+            for i in range(5):
+                spinner.next(i)
+                time.sleep(1)
+            print ""
+            lb = elb.create_load_balancer(name=name, zones=zones, listeners=listeners)
+        elif e.code == 'DuplicateLoadBalancerName':
+            print "something went wrong. we don't know what to do yet..."
+            raise
+        else:
+            print e
+            raise
+    except Exception, e:
+        print e
+        raise
+    hc = HealthCheck(interval=30, target='TCP:80', healthy_threshold=2, timeout=5, unhealthy_threshold=10)
+    lb.configure_health_check(hc)
+    return lb
 
 def save_config_file(config, config_file_path):
     with open(config_file_path, 'w') as fp:
@@ -1400,10 +1516,11 @@ def control_instance(stackName, action, instanceName=None):
                 print(_green("\n[%s]OpsWorks Instance state: %s" % (instance['Hostname'], myinstance['Status'])))
             else:
                 print(_green("%s in %s already stopped" % (instance['Hostname'], stackName)))
-            try:    
+            try:
+                print(_green("removing %s from ssh config..." % instance['PublicDns'] ))
                 removefromsshconfig(dns=instance['PublicDns'])
-            except Exception, e:
-                print e
+            except Exception:
+                pass
     
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
@@ -1709,6 +1826,9 @@ def generatedefaultsettings(settingstype):
     domain_name = 'test.expa.com'
     notification_email = 'ops@expa.com'
     
+    elb_ssl_key_path = "./keys/expatest.key"
+    elb_ssl_cert_path = "./keys/expatest.crt"
+
     aws_access_key_id = aws_cfg.get('aws', 'access_key_id') or ''
     aws_secret_access_key = aws_cfg.get('aws', 'secret_access_key') or ''
 
@@ -1760,6 +1880,10 @@ def generatedefaultsettings(settingstype):
     domain_name = raw_input('base domain for app[%s]: ' % domain_name) or domain_name
     if app_name is None:
         app_name = raw_input('django app name[%s]: ' % app_name) or app_name
+
+    elb_ssl_key_path = raw_input('ssl key path(rsa format)[%s]: ' % elb_ssl_key_path) or elb_ssl_key_path
+    elb_ssl_cert_path = raw_input('ssl cert path(includes cert chain)[%s]: ' % elb_ssl_cert_path) or elb_ssl_cert_path
+
     admin_user = raw_input('admin user[%s]: ' % admin_user) or admin_user
     admin_email = raw_input('admin user email[%s]: ' % admin_email) or admin_email
     notification_email = raw_input('notification email(i.e. ops@)[%s]: ' % admin_email) or admin_email
@@ -1783,6 +1907,8 @@ def generatedefaultsettings(settingstype):
                     "INSTALLROOT" : install_root,
                     "ADMIN_USER" : admin_user,
                     "ADMIN_EMAIL" : admin_email,
+                    "ELB_SSL_CERT_PATH" : elb_ssl_cert_path,
+                    "ELB_SSL_KEY_PATH" : elb_ssl_key_path,
                     "ADMIN_PASS" : ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(16)),
                     "DJANGOSECRETKEY" : djangosecretkey,
                     "OPSWORKS_CUSTOM_JSON": {'deploy': {
@@ -1864,8 +1990,8 @@ def removefromsshconfig(dns):
                 ssh_config.seek(0)
                 ssh_config.write(''.join(lines))
                 ssh_config.truncate()
-        except Exception as error:
-            print error
+        except Exception, e:
+            print e
 
 def sethostfromname(name):
     if env.host_string != '127.0.0.1':
