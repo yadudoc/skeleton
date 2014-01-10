@@ -432,6 +432,7 @@ def terminate_ec2(name):
                     removefromsshconfig(instance.public_dns_name)
                     #remove_dns_entries(name, 'app')
 
+# TODO: wait until rds is terminated
 @task
 def terminate_rds(name):
     """
@@ -492,7 +493,7 @@ def delete_stack(stackName):
         try:
             aws_cfg = load_aws_cfg()
         except Exception, error:
-            print error
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
             return 1
 
     stackName = stackName.lower()
@@ -515,7 +516,47 @@ def delete_stack(stackName):
             opsworks.delete_stack(stackId)
 
 @task
+def get_ssl_certs():
+    """
+    return a list of all  ssl certs
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    iam = connect_to_iam()    
+    certs = iam.get_all_server_certs()['list_server_certificates_response']['list_server_certificates_result']['server_certificate_metadata_list']
+    for cert in certs:
+        print cert['server_certificate_name']
+    return certs
+
+@task
+def delete_ssl_cert(certname):
+    """
+    deletes the nameed iam server cert
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    iam = connect_to_iam()
+    iam.delete_server_cert(certname)
+
+@task
 def getstacks():
+    """
+    returns a list of opsworks stacks
+    """
     try:
         aws_cfg
     except NameError:
@@ -914,6 +955,9 @@ def _virtualenv():
     with prefix(env.activate):
         yield
 
+
+#aws
+
 def connect_to_elb():
     """
     return an ec2 connection given credentials imported from config
@@ -1197,8 +1241,6 @@ def create_route53_ec2_dns(name, app_type):
         else:
             raise
 
-# Does nothing useful yet
-# TODO: build out layer ip retrieval and route53 record creation
 @task 
 def create_route53_elb_dns(elb_name, app_type):
     """
@@ -1348,6 +1390,7 @@ def create_opsworks_roles():
     user_arn = user['get_user_response']['get_user_result']['user']['arn']
     return { "serviceRole": service_role_arn, "instanceProfile": instance_profile_arn, "user_arn": user_arn}
 
+@task
 def create_elb(name, app_type):
     """
     creates an elb with the given name and app settings ...duh
@@ -1408,37 +1451,6 @@ def create_elb(name, app_type):
     hc = HealthCheck(interval=30, target='TCP:80', healthy_threshold=2, timeout=5, unhealthy_threshold=10)
     lb.configure_health_check(hc)
     return lb
-
-def save_config_file(config, config_file_path):
-    with open(config_file_path, 'w') as fp:
-        config.write(fp)
-
-def read_config_file(config_file_path):
-    config = SafeConfigParser()
-    with open(config_file_path) as fp:
-        config.readfp(fp)
-    return config
-
-def save_aws_cfg(config):
-    save_config_file(config, 'aws.cfg')
-
-def load_aws_cfg():
-    try:
-        config = read_config_file('aws.cfg')
-        env.key_filename = os.path.expanduser(os.path.join(config.get("aws", "key_dir"),
-                                                           config.get("aws", "key_name") + ".pem"))
-        return config
-    except Exception as error:
-        print(_red("---something went wrong when reading your aws.cfg file. aws access will be disabled. %s---" % error))
-        raise
-
-def load_git_cfg():
-    try:
-        git_cfg = read_config_file('git.cfg')
-        return git_cfg
-    except Exception as error:
-        print(_red("---something went wrong when reading your git.cfg file. github access will be disabled. %s---" % error))
-        raise
 
 def control_instance(stackName, action, instanceName=None):
     """
@@ -1521,7 +1533,44 @@ def control_instance(stackName, action, instanceName=None):
                 removefromsshconfig(dns=instance['PublicDns'])
             except Exception:
                 pass
-    
+
+
+# config
+
+def save_config_file(config, config_file_path):
+    with open(config_file_path, 'w') as fp:
+        config.write(fp)
+
+def read_config_file(config_file_path):
+    config = SafeConfigParser()
+    with open(config_file_path) as fp:
+        config.readfp(fp)
+    return config
+
+def save_aws_cfg(config):
+    save_config_file(config, 'aws.cfg')
+
+def load_aws_cfg():
+    try:
+        config = read_config_file('aws.cfg')
+        env.key_filename = os.path.expanduser(os.path.join(config.get("aws", "key_dir"),
+                                                           config.get("aws", "key_name") + ".pem"))
+        return config
+    except Exception as error:
+        print(_red("---something went wrong when reading your aws.cfg file. aws access will be disabled. %s---" % error))
+        raise
+
+def load_git_cfg():
+    try:
+        git_cfg = read_config_file('git.cfg')
+        return git_cfg
+    except Exception as error:
+        print(_red("---something went wrong when reading your git.cfg file. github access will be disabled. %s---" % error))
+        raise
+
+
+# deployment automation
+
 def install_requirements(release=None, app_type='app'):
     "Install the required packages from the requirements file using pip"
     try:
@@ -1795,6 +1844,9 @@ def update_apt():
         else:
             print _green('[DONE]')
 
+
+# app settings
+
 def savesettings(appsettingsjson, settingsfile):
     #print _red("saving settings to: " + settingsfile)
     with open(settingsfile, "w") as settingsfile:
@@ -1943,6 +1995,9 @@ def generatedefaultsettings(settingstype):
                     }
     #print json.dumps(settingsjson, sort_keys=True, indent=4, separators=(',', ': '))
     return settingsjson
+
+
+# utils
 
 def addtosshconfig(name, dns, ssh_user='ubuntu', isOpsworksInstance=False):
     """
