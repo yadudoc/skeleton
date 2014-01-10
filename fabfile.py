@@ -955,7 +955,6 @@ def _virtualenv():
     with prefix(env.activate):
         yield
 
-
 #aws
 
 def connect_to_elb():
