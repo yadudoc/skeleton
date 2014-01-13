@@ -706,7 +706,7 @@ def bootstrap(name, app_type):
         install_localdb_server(name, app_settings["DB_TYPE"])
 
 @task
-def deploy_opsworks(stackName, command, recipe=None):
+def deploy_opsworks(stackName, command, recipes=None, instanceName=None):
     """
     creates an opsworks deployment for given stackName and command
     """
@@ -725,13 +725,21 @@ def deploy_opsworks(stackName, command, recipe=None):
                 for appId in appIds:
                     deployment = opsworks.create_deployment(stack_id=stackId, app_id=appId, command=deploymentCommand)
             elif 'execute_recipe' in command:
+                if instanceName is None:
+                    print(_red("please define instanceName to execute a recipe"))
+                    return 1
                 deploymentCommand['Name'] = 'execute_recipes'
                 deploymentCommand['Args'] = {}
-                deploymentCommand['Args']['recipes'] = [ recipe ]
+                deploymentCommand['Args']['recipes'] = [ recipes ]
+                instances = opsworks.describe_instances(stackId)
+                instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] if instance['Hostname'] == instanceName ]
                 #print json.dumps(deploymentCommand, indent=4, separators=(',', ': '), sort_keys=True)
-                deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
+                deployment = opsworks.create_deployment(stack_id=stackId, instance_ids=instanceIds, command=deploymentCommand)
             else:
                 deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
+    else:
+        print(_red("stack: %s not found" % stackName))
+        return 1
     spinner = Spinner(_yellow("deployment %s: running... " % deployment['DeploymentId']))
     status = opsworks.describe_deployments(deployment_ids=[ deployment['DeploymentId'] ])['Deployments'][0]['Status']
     while status == 'running':
@@ -743,7 +751,6 @@ def deploy_opsworks(stackName, command, recipe=None):
     else:
         print(_green("\ndeployment %s: %s" % (deployment['DeploymentId'], status)))
     return deployment
-
 
 @task
 def deployapp(name, app_type):
