@@ -586,15 +586,17 @@ def getec2instances():
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    # Get a list of instance IDs for the ELB.
-    instances = []
-    conn = connect_to_elb()
-    for elb in conn.get_all_load_balancers():
-        instances.extend(elb.instances)
+    # We don't need to do this?
+    # Get a list of instance IDs for the ELB. 
+    # instances = []
+    # conn = connect_to_elb()
+    # for elb in conn.get_all_load_balancers():
+    #     instances.extend(elb.instances)
 
     # Get the instance IDs for the reservations.
     conn = connect_to_ec2()
-    reservations = conn.get_all_instances([i.id for i in instances])
+    #reservations = conn.get_all_instances([i.id for i in instances])
+    reservations = conn.get_all_instances()
     instance_ids = []
     for reservation in reservations:
         for i in reservation.instances:
@@ -1240,7 +1242,6 @@ def create_route53_ec2_dns(name, app_type):
         else:
             raise
 
-@task 
 def create_route53_elb_dns(elb_name, app_type):
     """
     creates dns entries for given elb name/app_type combo
@@ -1389,7 +1390,6 @@ def create_opsworks_roles():
     user_arn = user['get_user_response']['get_user_result']['user']['arn']
     return { "serviceRole": service_role_arn, "instanceProfile": instance_profile_arn, "user_arn": user_arn}
 
-@task
 def create_elb(name, app_type):
     """
     creates an elb with the given name and app settings ...duh
