@@ -706,7 +706,7 @@ def bootstrap(name, app_type):
         install_localdb_server(name, app_settings["DB_TYPE"])
 
 @task
-def deploy_opsworks(stackName, command):
+def deploy_opsworks(stackName, command, recipe=None):
     """
     creates an opsworks deployment for given stackName and command
     """
@@ -724,6 +724,12 @@ def deploy_opsworks(stackName, command):
                 appIds = [ app['AppId'] for app in apps['Apps'] ]
                 for appId in appIds:
                     deployment = opsworks.create_deployment(stack_id=stackId, app_id=appId, command=deploymentCommand)
+            elif 'execute_recipe' in command:
+                deploymentCommand['Name'] = 'execute_recipes'
+                deploymentCommand['Args'] = {}
+                deploymentCommand['Args']['recipes'] = [ recipe ]
+                #print json.dumps(deploymentCommand, indent=4, separators=(',', ': '), sort_keys=True)
+                deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
             else:
                 deployment = opsworks.create_deployment(stack_id=stackId, command=deploymentCommand)
     spinner = Spinner(_yellow("deployment %s: running... " % deployment['DeploymentId']))
@@ -737,6 +743,7 @@ def deploy_opsworks(stackName, command):
     else:
         print(_green("\ndeployment %s: %s" % (deployment['DeploymentId'], status)))
     return deployment
+
 
 @task
 def deployapp(name, app_type):
