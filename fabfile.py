@@ -1955,7 +1955,7 @@ def generatedefaultsettings(settingstype):
     
     projectpath = install_root + '/' + app_name
     settingsModule = 'settings.production'
-    djangosecretkey = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits + '@#$%^*') for ii in range(64))
+    djangosecretkey = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(64))
 
     settingsjson = {"DATABASE_USER" : database_user,
                     # RDS password limit is 41 characters and only printable chars. Felt weird so we'll make it 32.
