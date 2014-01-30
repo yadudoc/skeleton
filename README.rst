@@ -81,15 +81,6 @@ Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant 1.3.5 (h
     $ cd testme
     $ vagrant up
 
-Startup expa core
-=================
-To start expa core, use vagrant to enter the VM and django to start the server::
-
-    $ vagrant ssh
-    $ cd /srv/www/expacore
-    $ source bin/activate
-    $ python ./releases/current/expa_core/manage.py runserver 0.0.0.0:8001
-
 Startup your app
 ====================
 To start the **testme** app, use vagrant to enter the VM and django to start the server::
