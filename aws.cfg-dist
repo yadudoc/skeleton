@@ -1,15 +1,26 @@
 [aws]
-aws_access_key_id: <YOUR KEY HERE>
-aws_secret_access_key: <YOUR SECRET KEY HERE>
-region: <YOUR REGION HERE, e.g. us-east-1>
-key_name: <YOUR EC2 KEY NAME>
-key_dir: <WHERE ARE YOUR KEYS>
-group_name: <YOUR SECURITY GROUP NAME>
+# AWS credentials
+access_key_id:
+secret_access_key:
+# region: your desired default AWS region. e.g. us-east-1
+region: 
+# key_dir: where do you want your keys stored. this dir should already exist
+key_dir: 
+# key_name: default ec2 key name. we'll create this if needed
+key_name:
+# group_name: default security group for one off instances. we will create this if it does not exist
+group_name:
+# ops_works_instance_size: what size do you want your opsworks instances? micro is not a valid opsworks choice as we are using ebs. e.g. small/large
+instance_size:
+# opsworks_public_key: filename of your desired key pair for use in connecting to OpsWorks instances. should exist in key_dir defined above
+opsworks_public_key: 
 ssh_port: 22
 
 [rds]
-rds_storage_size: <RDS STORAGE IN GB>
-rds_instance_size: <RDS INSTANCE SIZE>
+# RDS details. Storage size in GBs
+rds_storage_size:
+# RDS instance type. e.g. db.t1.micro/db.m1.small/db.m1.medium/etc. see: http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html
+rds_instance_type:
 
 [micro]
 # All AMIs are in US-East
@@ -17,6 +28,7 @@ rds_instance_size: <RDS INSTANCE SIZE>
 instance_type: t1.micro
 ubuntu_lts_ami: ami-69f5a900
 
+#Feel free to add more mappings. Reference: http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html
 [small]
 # small and instance store: ubuntu/images/ubuntu-precise-12.04-amd64-server-20131024
 instance_type: m1.small
@@ -27,6 +39,9 @@ ubuntu_lts_ami: ami-5ffaa636
 instance_type: m1.large
 ubuntu_lts_ami: ami-5ffaa636
 
+
+
+# not implemented
 [vpc]
 name = expa
 cidr_block = 10.0.0.0/16
