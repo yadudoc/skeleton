@@ -1587,10 +1587,15 @@ def install_requirements(release=None, app_type='app'):
     if release is None:
         release = 'current'
 
+    requirements_file = 'production.txt'
+    
+    if 'development' in env.keys():
+        if env.development == 'true':
+            requirements_file = 'local.txt'
+
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('./bin/pip install -q --upgrade distribute')
-        run('./bin/pip install -q -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
-                                                                                                    requirements_file=app_settings["REQUIREMENTSFILE"]))
+        run('./bin/pip install -q -r ./releases/%s/requirements/%s' % (release, requirements_file))
 
 def migrate(app_type):
     "Update the database"
@@ -1959,7 +1964,6 @@ def generatedefaultsettings(settingstype):
                     "DATABASE_PORT" : database_port,
                     "DB_TYPE" : database_type,
                     "PROJECTPATH" : projectpath, 
-                    "REQUIREMENTSFILE" : settingsModule,
                     "HOST_NAME" : fqdn,
                     "DOMAIN_NAME": domain_name,
                     "INSTALLROOT" : install_root,
