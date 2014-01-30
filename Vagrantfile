@@ -40,6 +40,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   #end
   # Enable provisioning with fabric script, specifiying jobs you want execute,
   # and the path of fabfile.
+  config.vbguest.auto_update = true
+  config.vbguest.iso_path = "/Applications/VirtualBox.app/Contents/MacOS/VBoxGuestAdditions.iso"  
   config.vm.provision :fabric do |fabric|
     fabric.fabfile_path = "./fabfile.py"
     fabric.tasks = ["localdev", ]

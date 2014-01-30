@@ -918,11 +918,6 @@ def localdev():
     except NameError:
         app_settings = loadsettings('app')
 
-    try:
-        core_settings
-    except NameError:
-        core_settings = loadsettings('core')
-
     env.user = 'vagrant'
     env.group = 'vagrant'
     env.target = 'dev'
@@ -947,8 +942,6 @@ def localdev():
         run('if [ `grep lmigrate.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lmigrate.sh" >> ~/.bashrc ; fi')
         sudo('if [ `grep "GRUB_RECORDFAIL_TIMEOUT=0" /etc/default/grub >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub && update-grub2; fi')
     print(_green("--dev env ready. run vagrant ssh and lserver to start dev server--"))
-    #deployapp(env.host_string, 'core')
-    #deployapp(env.host_string, 'gis')
 
 @task
 def restart(name):
