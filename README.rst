@@ -1,5 +1,5 @@
 ========================
-expa-deploy
+skeleton
 ========================
 
 A common deployment framework to spin up vagrant or aws instances with a base django app.
@@ -19,27 +19,42 @@ should replace this name with the actual name of your project.*
 
 Prerequisites
 =============
-#. Request addition as collaborator for expa/core github.com repo
-#. Fork expa/core github.com repo & create a deploy key
-#. Fork expa/gis github.com & create a deploy key (optional)
+#. pip
+#. virtualenv (optional: virtualenvwrapper)
 #. setup git.cfg (based on git.cfg-dist)
+#. setup aws.cfg (based on aws.cfg-dist)
 
 Working Environment
 ===================
-
 You have several options in setting up your working environment.  We recommend
 using virtualenv to separate the dependencies of your project from your system's
 python environment.  If on Linux or Mac OS X, you can also use virtualenvwrapper to help manage multiple virtualenvs across different projects.
 
-Virtualenv Only
----------------
 
+Pip/Virtualenv/Virtualenvwrapper
+---------------------------------
+System-wide installation::
+
+    $ sudo easy_install pip
+    $ sudo pip install virtualenv
+    $ sudo pip install virtualenvwrapper
+
+Add the following to ~/.bash_profile::
+
+    $ export WORKON_HOME=$HOME/.virtualenvs
+    $ source /usr/local/bin/virtualenvwrapper.sh
+
+Re-source your shell environment::
+
+    $ source ~/.bash_profile
+
+Virtualenv
+-----------
 First, make sure you are using virtualenv (http://www.virtualenv.org). Once
 that's installed, create your virtualenv::
 
-    $ virtualenv testme
-    $ cd testme
-    $ source bin/activate
+    $ mkvirtualenv testme
+    $ workon testme
 
 Installing Django
 =================
@@ -59,28 +74,19 @@ To create a new Django project called '**testme**' using django-twoscoops-projec
 Vagrant + VirtualBox
 ====================
 
-Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://downloads.vagrantup.com/)::
+Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant 1.3.5 (http://downloads.vagrantup.com/tags/v1.3.5)::
 
     $ vagrant plugin install vagrant-fabric
     $ vagrant plugin install vagrant-vbguest
     $ cd testme
     $ vagrant up
 
-Startup expa core
-=================
-To start expa core, use vagrant to enter the VM and django to start the server::
-
-    $ vagrant ssh
-    $ cd /mnt/ym/expacore
-    $ source bin/activate
-    $ python ./releases/current/expa_core/manage.py runserver 0.0.0.0:8001
-
 Startup your app
 ====================
 To start the **testme** app, use vagrant to enter the VM and django to start the server::
 
     $ vagrant ssh
-    $ cd /mnt/ym/testme
+    $ cd /srv/www/testme
     $ source bin/activate
     $ python ./releases/current/testme/manage.py runserver 0.0.0.0:8000
 

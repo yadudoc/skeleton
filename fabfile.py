@@ -918,11 +918,6 @@ def localdev():
     except NameError:
         app_settings = loadsettings('app')
 
-    try:
-        core_settings
-    except NameError:
-        core_settings = loadsettings('core')
-
     env.user = 'vagrant'
     env.group = 'vagrant'
     env.target = 'dev'
@@ -947,8 +942,6 @@ def localdev():
         run('if [ `grep lmigrate.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lmigrate.sh" >> ~/.bashrc ; fi')
         sudo('if [ `grep "GRUB_RECORDFAIL_TIMEOUT=0" /etc/default/grub >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub && update-grub2; fi')
     print(_green("--dev env ready. run vagrant ssh and lserver to start dev server--"))
-    #deployapp(env.host_string, 'core')
-    #deployapp(env.host_string, 'gis')
 
 @task
 def restart(name):
@@ -1594,10 +1587,15 @@ def install_requirements(release=None, app_type='app'):
     if release is None:
         release = 'current'
 
+    requirements_file = 'production.txt'
+    
+    if 'development' in env.keys():
+        if env.development == 'true':
+            requirements_file = 'local.txt'
+
     with cd('{path}'.format(path=app_settings["PROJECTPATH"])):
         run('./bin/pip install -q --upgrade distribute')
-        run('./bin/pip install -q -r ./releases/{release}/requirements/{requirements_file}.txt'.format(release=release,
-                                                                                                    requirements_file=app_settings["REQUIREMENTSFILE"]))
+        run('./bin/pip install -q -r ./releases/%s/requirements/%s' % (release, requirements_file))
 
 def migrate(app_type):
     "Update the database"
@@ -1966,7 +1964,6 @@ def generatedefaultsettings(settingstype):
                     "DATABASE_PORT" : database_port,
                     "DB_TYPE" : database_type,
                     "PROJECTPATH" : projectpath, 
-                    "REQUIREMENTSFILE" : settingsModule,
                     "HOST_NAME" : fqdn,
                     "DOMAIN_NAME": domain_name,
                     "INSTALLROOT" : install_root,
