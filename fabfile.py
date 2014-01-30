@@ -937,8 +937,10 @@ def localdev():
 
     with settings(hide('running')):
         sudo('echo "alias lserver=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py runserver 0.0.0.0:8000\'" > /etc/profile.d/lserver.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
+        sudo('echo "alias lsync=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py syncdb\'" > /etc/profile.d/lsync.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
         sudo('echo "alias lmigrate=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py migrate\'" > /etc/profile.d/lmigrate.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
         run('if [ `grep lserver.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lserver.sh" >> ~/.bashrc ; fi')
+        run('if [ `grep lsync.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lsync.sh" >> ~/.bashrc ; fi')
         run('if [ `grep lmigrate.sh ~/.bashrc >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "source /etc/profile.d/lmigrate.sh" >> ~/.bashrc ; fi')
         sudo('if [ `grep "GRUB_RECORDFAIL_TIMEOUT=0" /etc/default/grub >/dev/null 2>&1 ; echo $?` -eq 1 ]; then echo "GRUB_RECORDFAIL_TIMEOUT=0" >> /etc/default/grub && update-grub2; fi')
     print(_green("--dev env ready. run vagrant ssh and lserver to start dev server--"))
