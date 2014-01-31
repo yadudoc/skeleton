@@ -501,7 +501,7 @@ def delete_stack(stackName):
     stacks = opsworks.describe_stacks()
     stackIds = [ stack['StackId'] for stack in stacks['Stacks'] if stack['Name'] == stackName ]
     for stackId in stackIds:
-        prompt = _green("shall we remove stack: ") + _yellow("%s/%s? ") % (stackName, str(stackId).encode('ascii', 'replace'))
+        prompt = _green("shall we remove stack: ") + _yellow("%s/%s? (y/n) ") % (stackName, str(stackId).encode('ascii', 'replace'))
         answer = raw_input(prompt)
         if answer.lower() == 'y':
             stop_instance(stackName=stackName)
@@ -1427,9 +1427,10 @@ def create_elb(name, app_type):
         iam.upload_server_cert(cert_name=certificate_name, cert_body=ssl_cert, private_key=ssl_key)
     except BotoServerError, e:
         if e.code == 'EntityAlreadyExists':
-            pass    
+            pass
+        else:
+            raise          
     except Exception, e:
-        print e
         raise        
 
     cert_arn = iam.get_server_certificate(certificate_name)['get_server_certificate_response']['get_server_certificate_result']['server_certificate']['server_certificate_metadata']['arn']
