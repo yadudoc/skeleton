@@ -2022,7 +2022,7 @@ def addtosshconfig(name, dns, ssh_user='ubuntu', isOpsworksInstance=False):
         aws_cfg = load_aws_cfg()
 
     if isOpsworksInstance == True:
-        key_file = aws_cfg.get('aws', 'opsworks_public_key')
+        key_file = aws_cfg.get('aws', 'opsworks_public_key').replace('.pub','')
     else:
         key_file = aws_cfg.get('aws', 'key_name') + '.pem'
 
