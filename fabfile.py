@@ -2055,12 +2055,12 @@ def removefromsshconfig(dns=None, name=None):
         try:
             with open(os.path.expanduser("~/.ssh/config"), "r+") as ssh_config:
                 lines = ssh_config.readlines()
-                if name is not None:
-                    blockstart = substringindex(lines, name)
+                if name is None:
+                    blockstart = substringindex(lines, dns)
                     blockend = substringindex(lines, "ForwardAgent yes", blockstart)
                     del(lines[blockstart-2:blockend+2])
                 else:
-                    blockstart = substringindex(lines, dns)
+                    blockstart = substringindex(lines, name)
                     blockend = substringindex(lines, "ForwardAgent yes", blockstart)
                     del(lines[blockstart-1:blockend+2])
 
