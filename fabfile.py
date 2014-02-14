@@ -1994,16 +1994,16 @@ def generatedefaultsettings(settingstype):
                                                     'AWS_STORAGE_BUCKET_NAME': '',
                                                     'AWS_LOGGING_BUCKET_NAME': ''
                                                   }
-                                                },
-                                                "aws": {
-                                                    "access_key_id": aws_access_key_id,
-                                                    "secret_access_key": aws_secret_access_key
-                                                },
-                                                "newrelic": {
-                                                    "license_key": "",
-                                                    "api_key": ""
                                                 }
-                                              }
+                                              },
+                                             'aws': {
+                                                'access_key_id': aws_access_key_id,
+                                                'secret_access_key': aws_secret_access_key
+                                             },
+                                             'newrelic': {
+                                                'license_key': '',
+                                                'api_key': ''
+                                             }
                                             }
                     }
     #print json.dumps(settingsjson, sort_keys=True, indent=4, separators=(',', ': '))
