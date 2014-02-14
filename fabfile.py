@@ -1435,7 +1435,7 @@ def create_elb(name, app_type):
 
     cert_arn = iam.get_server_certificate(certificate_name)['get_server_certificate_response']['get_server_certificate_result']['server_certificate']['server_certificate_metadata']['arn']
     zones = [ zone.name for zone in ec2.get_all_zones() ]
-    listeners = [(80, 8080, 'http'), (443, 8443, 'https', cert_arn)]
+    listeners = [(80, 80, 'http'), (443, 8443, 'https', cert_arn)]
 
     try:
         lb = elb.create_load_balancer(name=name, zones=zones, listeners=listeners)
