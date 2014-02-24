@@ -2002,7 +2002,16 @@ def generatedefaultsettings(settingstype):
                                              },
                                              'newrelic': {
                                                 'license_key': '',
-                                                'api_key': ''
+                                                'api_key': '',
+                                                'environment': '',
+                                                'production': {
+                                                    'app_id': '',
+                                                    'app_name': ''
+                                                },
+                                                'staging': {
+                                                    'app_id': '',
+                                                    'app_name': ''
+                                                }
                                              }
                                             }
                     }
