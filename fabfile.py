@@ -553,7 +553,29 @@ def delete_ssl_cert(certname):
     iam.delete_server_cert(certname)
 
 @task
-def getstacks():
+def getdeploys(deploymentState='running', stackName=None):
+    """
+    returns a list of opsworks deployments in the given state. default is to return running deployments
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print error
+            return 1
+
+    opsworks = connect_to_opsworks()
+    stacks = getstacks(stackName=stackName)
+    for stack in stacks:
+        allDeployments = opsworks.describe_deployments(stack_id=stack['stackid'])
+        for deployment in allDeployments['Deployments']:
+            if deployment['Status'] == deploymentState:
+                print json.dumps(deployment, indent=4, separators=(',', ': '), sort_keys=True)
+
+@task
+def getstacks(stackName=None):
     """
     returns a list of opsworks stacks
     """
@@ -568,13 +590,20 @@ def getstacks():
 
     opsworks = connect_to_opsworks()
     stacks = opsworks.describe_stacks()
+    myStacks = []
     if stacks['Stacks'] != []:
-        print(_green("Name: StackId"))
         for stack in stacks['Stacks']:
-            print(stack['Name'] + ": " + stack['StackId'])
+            if stackName is None:
+                myStacks.append({'name': stack['Name'], 'stackid': stack['StackId']})
+            else:
+                if stackName == stack['Name']:
+                    myStacks.append({'name': stack['Name'], 'stackid': stack['StackId']})
+        for myStack in myStacks:
+            print "%s: %s" % (myStack['name'], myStack['stackid'])
+        return myStacks
     else:
         print(_green("no stacks defined"))
-    return stacks
+        return None
 
 @task
 def getec2instances():
