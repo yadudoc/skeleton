@@ -754,14 +754,14 @@ def deploy_opsworks(stackName, command, recipes=None, instanceName=None):
                 for appId in appIds:
                     deployment = opsworks.create_deployment(stack_id=stackId, app_id=appId, command=deploymentCommand)
             elif 'execute_recipe' in command:
+                instances = opsworks.describe_instances(stackId)
                 if instanceName is None:
-                    print(_red("please define instanceName to execute a recipe"))
-                    return 1
+                    instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] ]
+                else:
+                    instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] if instance['Hostname'] == instanceName ]
                 deploymentCommand['Name'] = 'execute_recipes'
                 deploymentCommand['Args'] = {}
                 deploymentCommand['Args']['recipes'] = [ recipes ]
-                instances = opsworks.describe_instances(stackId)
-                instanceIds = [ instance['InstanceId'] for instance in instances['Instances'] if instance['Hostname'] == instanceName ]
                 #print json.dumps(deploymentCommand, indent=4, separators=(',', ': '), sort_keys=True)
                 deployment = opsworks.create_deployment(stack_id=stackId, instance_ids=instanceIds, command=deploymentCommand)
             else:
