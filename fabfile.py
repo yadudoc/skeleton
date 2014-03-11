@@ -1,6 +1,6 @@
 
 import boto.ec2, boto.rds, boto.route53, boto.s3, boto.iam
-import os, time, json, string, random, subprocess
+import os, time, json, string, random, subprocess, calendar
 
 from contextlib import contextmanager
 from random import choice
@@ -15,7 +15,10 @@ from fabric.api import task, settings
 from fabric.colors import green as _green, yellow as _yellow
 from fabric.colors import red as _red, blue as _blue
 from fabric.context_managers import hide, shell_env
+
 from progress.spinner import Spinner
+from datetime import datetime, timedelta
+from operator import itemgetter
 
 OPSWORKS_SERVICE_ASSUME_ROLE_POLICY = json.dumps({
     'Statement': [{'Principal': {'Service': ['opsworks.amazonaws.com']},
@@ -553,9 +556,9 @@ def delete_ssl_cert(certname):
     iam.delete_server_cert(certname)
 
 @task
-def getdeploys(deploymentState='running', stackName=None):
+def getdeploys(deploymentState=None, stackName=None):
     """
-    returns a list of opsworks deployments in the given state. default is to return running deployments
+    returns a list of opsworks deployments in the given state. default is to return all deployments
     """
     try:
         aws_cfg
@@ -568,11 +571,49 @@ def getdeploys(deploymentState='running', stackName=None):
 
     opsworks = connect_to_opsworks()
     stacks = getstacks(stackName=stackName)
+    output = []
     for stack in stacks:
         allDeployments = opsworks.describe_deployments(stack_id=stack['stackid'])
-        for deployment in allDeployments['Deployments']:
-            if deployment['Status'] == deploymentState:
-                print json.dumps(deployment, indent=4, separators=(',', ': '), sort_keys=True)
+        if deploymentState is None:
+            deployments = [ deployment for deployment in allDeployments['Deployments'] ]
+        else:
+            deployments = [ deployment for deployment in allDeployments['Deployments'] if deployment['Status'] == deploymentState ]
+        if len(deployments) > 0:
+            header = ['Stack', 'App', 'Command', 'Status', 'Started', 'Finished', 'Duration']
+            # print _green("Stack \t App \t Command \t Status \t Started \t Finished")
+            for deployment in deployments:
+                command = deployment['Command']['Name']
+                args = deployment['Command']['Args']
+                # example: 2014-03-06T22:53:19+00:00
+                started = utc_to_local(datetime.strptime(deployment['CreatedAt'], '%Y-%m-%dT%H:%M:%S+00:00'))
+                if 'AppId' in deployment.keys():
+                    appName = opsworks.describe_apps(app_ids=[ deployment['AppId'] ])['Apps'][0]['Name']
+                else:
+                    appName = 'None'
+
+                if 'CompletedAt' in deployment.keys():
+                    finished = utc_to_local(datetime.strptime(deployment['CompletedAt'], '%Y-%m-%dT%H:%M:%S+00:00'))
+                else:
+                    finished = 'None'
+
+                if 'Duration' in deployment.keys():
+                    duration = deployment['Duration']
+                else:
+                    duration = 'None'
+                if stackName is None:
+                    stackName = opsworks.describe_stacks(stack_ids=[ deployment['StackId'] ])['Stacks'][0]['Name']
+
+                if deployment['Status'] == 'successful':
+                    outputColor = _green
+                elif deployment['Status'] == 'running':
+                    outputColor = _yellow
+                elif deployment['Status'] == 'failed':
+                    outputColor = _red
+
+                output.append({'Stack': stackName, 'App': appName, 'Command': '%s(%s)' % (command, args), 'Status': deployment['Status'], 'Started': started, 'Finished': finished, 'Duration': duration, 'color': outputColor})
+            print format_as_table(output, header=header, keys=header)
+        else:
+            print _green("no deployments in state: %s" % deploymentState)
 
 @task
 def getstacks(stackName=None):
@@ -599,7 +640,7 @@ def getstacks(stackName=None):
                 if stackName == stack['Name']:
                     myStacks.append({'name': stack['Name'], 'stackid': stack['StackId']})
         for myStack in myStacks:
-            print "%s: %s" % (myStack['name'], myStack['stackid'])
+            print _green("%s: %s" % (myStack['name'], myStack['stackid']))
         return myStacks
     else:
         print(_green("no stacks defined"))
@@ -2118,3 +2159,74 @@ def substringindex(the_list, substring, offset=0):
         if (substring in sstring) and ( sindex >= offset):
             return sindex
     return -1
+
+def utc_to_local(utc_dt):
+    # get integer timestamp to avoid precision lost
+    timestamp = calendar.timegm(utc_dt.timetuple())
+    local_dt = datetime.fromtimestamp(timestamp)
+    assert utc_dt.resolution >= timedelta(microseconds=1)
+    return local_dt.replace(microsecond=utc_dt.microsecond)
+
+def format_as_table(data, keys, header=None, sort_by_key=None, sort_order_reverse=False):
+    """Takes a list of dictionaries, formats the data, and returns
+    the formatted data as a text table.
+
+    Required Parameters:
+        data - Data to process (list of dictionaries). (Type: List)
+        keys - List of keys in the dictionary. (Type: List)
+
+    Optional Parameters:
+        header - The table header. (Type: List)
+        sort_by_key - The key to sort by. (Type: String)
+        sort_order_reverse - Default sort order is ascending, if
+            True sort order will change to descending. (Type: Boolean)
+    """
+    # Sort the data if a sort key is specified (default sort order
+    # is ascending)
+    if sort_by_key:
+        data = sorted(data,
+                      key=itemgetter(sort_by_key),
+                      reverse=sort_order_reverse)
+
+    # If header is not empty, add header to data
+    if header:
+        # Get the length of each header and create a divider based
+        # on that length
+        header_divider = []
+        for name in header:
+            header_divider.append('-' * len(name))
+
+        # Create a list of dictionary from the keys and the header and
+        # insert it at the beginning of the list. Do the same for the
+        # divider and insert below the header.
+        header_divider = dict(zip(keys, header_divider))
+        data.insert(0, header_divider)
+        header = dict(zip(keys, header))
+        data.insert(0, header)
+
+    column_widths = []
+    for key in keys:
+        column_widths.append(max(len(str(column[key])) for column in data))
+
+    # Create a tuple pair of key and the associated column width for it
+    key_width_pair = zip(keys, column_widths)
+
+    myFormat = ('%-*s ' * len(keys)).strip() + '\n'
+    formatted_data = ''
+
+    for element in data:
+        if 'color' in element.keys():
+            outputColor = element['color']
+        else:
+            outputColor = None
+        data_to_format = []
+        # Create a tuple that will be used for the formatting in
+        # width, value myFormat
+        for pair in key_width_pair:
+            data_to_format.append(pair[1])
+            data_to_format.append(element[pair[0]])
+        if outputColor:
+            formatted_data += outputColor(myFormat) % tuple(data_to_format)
+        else:
+            formatted_data += myFormat % tuple(data_to_format)
+    return formatted_data
