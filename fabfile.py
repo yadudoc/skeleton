@@ -573,19 +573,20 @@ def getdeploys(deploymentState=None, stack=None):
     ostacks = getstacks(stackName=stack)
 
     for ostack in ostacks:
-        output = []
-        # print "calling describe_instances"
-        instanceNames = { instance['InstanceId']: instance['Hostname'] for instance in opsworks.describe_instances(stack_id=ostack['stackid'])['Instances'] }
         # print "calling describe_deployments"
         allDeployments = opsworks.describe_deployments(stack_id=ostack['stackid'])
-        # print "calling describe_apps"
-        appNames = { app['AppId']: app['Name'] for app in opsworks.describe_apps(stack_id=ostack['stackid'])['Apps'] }
-        stackName = ostack['name'] or stack
         if deploymentState is None:
             deployments = [ deployment for deployment in allDeployments['Deployments'] ]
         else:
             deployments = [ deployment for deployment in allDeployments['Deployments'] if deployment['Status'] == deploymentState ]
         if len(deployments) > 0:
+            output = []
+            # print "calling describe_instances"
+            instanceNames = { instance['InstanceId']: instance['Hostname'] for instance in opsworks.describe_instances(stack_id=ostack['stackid'])['Instances'] }
+            # print "calling describe_apps"
+            appNames = { app['AppId']: app['Name'] for app in opsworks.describe_apps(stack_id=ostack['stackid'])['Apps'] }
+            stackName = ostack['name'] or stack
+
             header = ['Stack', 'App', 'Command', 'Status', 'DeployUser', 'InstanceNames', 'Started', 'Finished', 'Duration']
             # print _green("Stack \t App \t Command \t Status \t Started \t Finished")
             for deployment in deployments:
