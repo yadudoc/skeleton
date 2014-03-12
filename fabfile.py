@@ -556,7 +556,7 @@ def delete_ssl_cert(certname):
     iam.delete_server_cert(certname)
 
 @task
-def getdeploys(deploymentState=None, stackName=None):
+def getdeploys(deploymentState=None, stack=None):
     """
     returns a list of opsworks deployments in the given state. default is to return all deployments
     """
@@ -570,24 +570,32 @@ def getdeploys(deploymentState=None, stackName=None):
             return 1
 
     opsworks = connect_to_opsworks()
-    stacks = getstacks(stackName=stackName)
-    output = []
-    for stack in stacks:
-        allDeployments = opsworks.describe_deployments(stack_id=stack['stackid'])
+    ostacks = getstacks(stackName=stack)
+
+    for ostack in ostacks:
+        output = []
+        # print "calling describe_instances"
+        instanceNames = { instance['InstanceId']: instance['Hostname'] for instance in opsworks.describe_instances(stack_id=ostack['stackid'])['Instances'] }
+        # print "calling describe_deployments"
+        allDeployments = opsworks.describe_deployments(stack_id=ostack['stackid'])
+        # print "calling describe_apps"
+        appNames = { app['AppId']: app['Name'] for app in opsworks.describe_apps(stack_id=ostack['stackid'])['Apps'] }
+        stackName = ostack['name'] or stack
         if deploymentState is None:
             deployments = [ deployment for deployment in allDeployments['Deployments'] ]
         else:
             deployments = [ deployment for deployment in allDeployments['Deployments'] if deployment['Status'] == deploymentState ]
         if len(deployments) > 0:
-            header = ['Stack', 'App', 'Command', 'Status', 'Started', 'Finished', 'Duration']
+            header = ['Stack', 'App', 'Command', 'Status', 'DeployUser', 'InstanceNames', 'Started', 'Finished', 'Duration']
             # print _green("Stack \t App \t Command \t Status \t Started \t Finished")
             for deployment in deployments:
-                command = deployment['Command']['Name']
-                args = deployment['Command']['Args']
-                # example: 2014-03-06T22:53:19+00:00
-                started = utc_to_local(datetime.strptime(deployment['CreatedAt'], '%Y-%m-%dT%H:%M:%S+00:00'))
+                # print json.dumps(deployment, indent=4, separators=(',', ': '), sort_keys=True)
+                deployedInstanceNames = []
+                if 'InstanceIds' in deployment.keys():
+                    deployedInstanceNames = [ instanceNames[instanceId] for instanceId in deployment['InstanceIds'] ]
+
                 if 'AppId' in deployment.keys():
-                    appName = opsworks.describe_apps(app_ids=[ deployment['AppId'] ])['Apps'][0]['Name']
+                    appName = appNames[deployment['AppId']]
                 else:
                     appName = 'None'
 
@@ -595,13 +603,20 @@ def getdeploys(deploymentState=None, stackName=None):
                     finished = utc_to_local(datetime.strptime(deployment['CompletedAt'], '%Y-%m-%dT%H:%M:%S+00:00'))
                 else:
                     finished = 'None'
+                if 'IamUserArn' in deployment.keys():
+                    deployUser = deployment['IamUserArn'].replace('arn:aws:iam::', '')
+                else:
+                    deployUser = 'aws'
 
                 if 'Duration' in deployment.keys():
                     duration = deployment['Duration']
                 else:
                     duration = 'None'
-                if stackName is None:
-                    stackName = opsworks.describe_stacks(stack_ids=[ deployment['StackId'] ])['Stacks'][0]['Name']
+
+                # example: 2014-03-06T22:53:19+00:00
+                started = utc_to_local(datetime.strptime(deployment['CreatedAt'], '%Y-%m-%dT%H:%M:%S+00:00'))
+                command = deployment['Command']['Name']
+                args = deployment['Command']['Args']
 
                 if deployment['Status'] == 'successful':
                     outputColor = _green
@@ -610,7 +625,7 @@ def getdeploys(deploymentState=None, stackName=None):
                 elif deployment['Status'] == 'failed':
                     outputColor = _red
 
-                output.append({'Stack': stackName, 'App': appName, 'Command': '%s(%s)' % (command, args), 'Status': deployment['Status'], 'Started': started, 'Finished': finished, 'Duration': duration, 'color': outputColor})
+                output.append({'Stack': stackName, 'App': appName, 'Command': '%s(%s)' % (command, args), 'Status': deployment['Status'], 'DeployUser': deployUser, 'InstanceNames': ','.join(deployedInstanceNames), 'Started': started, 'Finished': finished, 'Duration': duration, 'color': outputColor})
             print format_as_table(output, header=header, keys=header)
         else:
             print _green("no deployments in state: %s" % deploymentState)
