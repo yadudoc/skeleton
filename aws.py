@@ -6,6 +6,7 @@ from collections import namedtuple
 
 import os, boto, boto.ec2, time
 
+
 def read_config_file(config_file_path):
     config = SafeConfigParser()
     with open(config_file_path) as fp:
@@ -24,6 +25,7 @@ ANYWHERE = '0.0.0.0/0'
 Node = namedtuple('Node', ['name', 'public_ip', 'user', 'keyfile'])
 Connections = namedtuple('Connections', ['ec2', 'vpc', 's3'])
 
+
 def connect(vpc_region):
     access_key, secret_key = read_credentials()
     s3_conn = boto.connect_s3(access_key, secret_key)
@@ -31,6 +33,7 @@ def connect(vpc_region):
     region = boto.ec2.get_region(vpc_region, aws_access_key_id=access_key, aws_secret_access_key=secret_key)
     vpc_conn = boto.connect_vpc(access_key, secret_key, region=region)
     return Connections(ec2_conn, vpc_conn, s3_conn)
+
 
 def make_vpc():
     vpc_config = read_config_file('aws.cfg')
@@ -55,6 +58,7 @@ def make_vpc():
 
     return bastion_hosts
 
+
 def get_or_create_vpc(conn, vpc_name, cidr_block):
     for vpc in filter_by_name(conn.vpc.get_all_vpcs, vpc_name):
         return vpc
@@ -62,6 +66,7 @@ def get_or_create_vpc(conn, vpc_name, cidr_block):
     vpc = conn.vpc.create_vpc(cidr_block)
     tag_with_name(vpc, vpc_name)
     return vpc
+
 
 def get_or_create_internet_gateway(conn, vpc, vpc_name):
     for internet_gateway in filter_by_name(conn.vpc.get_all_internet_gateways, vpc_name):
@@ -72,6 +77,7 @@ def get_or_create_internet_gateway(conn, vpc, vpc_name):
     conn.vpc.attach_internet_gateway(internet_gateway.id, vpc.id)
     return internet_gateway
 
+
 def get_or_create_route_table(conn, vpc, route_name, internet_gateway):
     for route_table in filter_by_name_and_vpc(conn.vpc.get_all_route_tables, route_name, vpc.id):
         return route_table
@@ -81,6 +87,7 @@ def get_or_create_route_table(conn, vpc, route_name, internet_gateway):
     conn.vpc.create_route(route_table.id, ANYWHERE, internet_gateway.id)
     return route_table
 
+
 def get_or_create_subnet(conn, vpc, route_table, subnet_name, cidr_block, availability_zone):
     for subnet in filter_by_name_and_vpc(conn.vpc.get_all_subnets, subnet_name, vpc.id):
         return subnet
@@ -89,6 +96,7 @@ def get_or_create_subnet(conn, vpc, route_table, subnet_name, cidr_block, availa
     tag_with_name(subnet, subnet_name)
     conn.vpc.associate_route_table(route_table.id, subnet.id)
     return subnet
+
 
 def get_or_create_bastion_host(conn, vpc_config, bastion_host_name, vpc, subnet):
     image_id = vpc_config.get('micro', 'ubuntu_lts_ami')
@@ -116,12 +124,14 @@ def get_or_create_bastion_host(conn, vpc_config, bastion_host_name, vpc, subnet)
         print bastion_host_name, 'is associated with Elastic IP', public_ip
         return Node(bastion_host_name, public_ip, image_login_user, BASTION_KEY_FILE)
 
+
 def associate_elastic_ip(conn, instance):
     if instance.ip_address:
         return instance.ip_address
     elastic_ip = get_or_create_elastic_ip(conn)
     conn.ec2.associate_address(instance_id=instance.id, allocation_id=elastic_ip.allocation_id)
     return elastic_ip.public_ip
+
 
 def get_or_create_elastic_ip(conn):
     filters = {'domain': 'vpc'}
@@ -131,12 +141,14 @@ def get_or_create_elastic_ip(conn):
     print 'Creating a new Elastic IP'
     return conn.ec2.allocate_address('vpc')
 
+
 def get_bastion_host_key(conn, vpc_config):
     key_name = vpc_config.get('aws', 'key_name')
     key_object_name = key_name + '.pem'
     key_pair = get_or_create_bastion_key_pair(conn, key_name, key_object_name, vpc_config)
     ensure_bastion_host_keyfile_exists(conn, vpc_config, key_object_name)
     return key_pair
+
 
 def get_or_create_bastion_key_pair(conn, key_name, key_object_name, vpc_config):
     key_pair = conn.ec2.get_key_pair(key_name)
@@ -147,16 +159,19 @@ def get_or_create_bastion_key_pair(conn, key_name, key_object_name, vpc_config):
         upload_bastion_key(conn, vpc_config, key_object_name)
     return key_pair
 
+
 def write_bastion_key_file(contents):
     with open(BASTION_KEY_FILE, 'wb') as fp:
         fp.write(contents)
     os.chmod(BASTION_KEY_FILE, 0600)
+
 
 def upload_bastion_key(conn, vpc_config, key_object_name):
     bucket = get_key_bucket(conn, vpc_config)
     print 'Uploading bastion host key to S3 bucket'
     key = bucket.new_key(key_object_name)
     key.set_contents_from_filename(BASTION_KEY_FILE, encrypt_key=True)
+
 
 def ensure_bastion_host_keyfile_exists(conn, vpc_config, key_object_name):
     if not os.path.isfile(BASTION_KEY_FILE):
@@ -166,6 +181,7 @@ def ensure_bastion_host_keyfile_exists(conn, vpc_config, key_object_name):
         key.get_contents_to_filename(BASTION_KEY_FILE)
         os.chmod(BASTION_KEY_FILE, 0600)
 
+
 def get_key_bucket(conn, vpc_config):
     key_bucket_region = get_or_default(vpc_config, 'vpc', 'key_bucket_region', Location.DEFAULT)
     key_bucket_prefix = vpc_config.get('vpc', 'key_bucket_prefix')
@@ -173,8 +189,10 @@ def get_key_bucket(conn, vpc_config):
     print 'Using', bucket_name, 'S3 bucket to hold EC2 keys'
     return conn.s3.create_bucket(bucket_name, location=key_bucket_region)
 
+
 def get_or_default(config, section, option, default_value=None):
     return config.get(section, option) if config.has_option(section, option) else default_value
+
 
 def get_or_create_vpc_security_group(conn, vpc_config, vpc_id):
     vpc_name = vpc_config.get('vpc', 'name')
@@ -187,40 +205,49 @@ def get_or_create_vpc_security_group(conn, vpc_config, vpc_id):
 
     print 'Creating Security Group with name:', security_group_name
     security_group = conn.ec2.create_security_group(security_group_name, security_group_name, vpc_id)
-    clear_all_permissions(conn, security_group) # start with a clean slate
+    clear_all_permissions(conn, security_group)  # start with a clean slate
     allow_https_egress(conn, security_group.id, ANYWHERE)
     allow_http_egress(conn, security_group.id, ANYWHERE)
     allow_ssh_ingress(conn, security_group.id, ANYWHERE)
     return security_group
 
+
 def allow_https_egress(conn, security_group, destination):
     conn.ec2.authorize_security_group_egress(security_group, 'tcp', 443, 443, None, destination)
 
+
 def allow_http_egress(conn, security_group, destination):
     conn.ec2.authorize_security_group_egress(security_group, 'tcp', 80, 80, None, destination)
+
 
 def allow_ssh_ingress(conn, security_group, source):
     conn.ec2.authorize_security_group(group_id=security_group, ip_protocol='tcp',
                                       from_port=22, to_port=22, cidr_ip=source)
 
+
 def fetch_running_reservations(conn, name, vpc_id):
     filters = {'tag:Name': name, 'instance-state-name': 'running', 'vpc-id': vpc_id}
     return conn.ec2.get_all_instances(filters=filters)
+
 
 def filter_by_name(function, name):
     filters = {'tag:Name': name}
     return function(filters=filters)
 
+
 def filter_by_vpc(function, vpc_id):
     filters = {'vpc-id': vpc_id}
     return function(filters=filters)
+
 
 def filter_by_name_and_vpc(function, name, vpc_id):
     filters = {'tag:Name': name, 'vpc-id': vpc_id}
     return function(filters=filters)
 
+
 def tag_with_name(item, name):
     item.add_tag('Name', name)
+
 
 def wait_until(instance, state):
     instance.update()
@@ -228,8 +255,10 @@ def wait_until(instance, state):
         time.sleep(5)
         instance.update()
 
+
 def has_credentials():
     return os.path.isfile(CREDENTIALS_FILE)
+
 
 def save_credentials(access_key_id, secret_access_key):
     config = SafeConfigParser()
@@ -240,15 +269,18 @@ def save_credentials(access_key_id, secret_access_key):
         config.write(fp)
     os.chmod(CREDENTIALS_FILE, 0600)
 
+
 def read_credentials():
     config = read_config_file(CREDENTIALS_FILE)
     access_key_id = config.get('aws', 'access_key_id')
     secret_access_key = config.get('aws', 'secret_access_key')
     return access_key_id, secret_access_key
 
+
 def read_vpc_config(vpc_config_name):
     vpc_config_file = os.path.join(os.path.dirname(__file__), 'config', 'vpc', vpc_config_name + '.cfg')
     return read_config_file(vpc_config_file)
+
 
 def delete_vpc():
     vpc_config = read_config_file('aws.cfg')
@@ -315,9 +347,11 @@ def delete_vpc():
         print 'Deleting vpc', vpc_name, vpc.id
         conn.vpc.delete_vpc(vpc.id)
 
+
 def clear_all_permissions(conn, security_group):
     revoke_ingress_permissions(conn, security_group)
     revoke_egress_permissions(conn, security_group)
+
 
 def revoke_ingress_permissions(conn, security_group):
     for rule in security_group.rules:
@@ -327,12 +361,14 @@ def revoke_ingress_permissions(conn, security_group):
                                            src_security_group_group_id=grant.group_id,
                                            cidr_ip=grant.cidr_ip)
 
+
 def revoke_egress_permissions(conn, security_group):
     for rule in security_group.rules_egress:
         for grant in rule.grants:
             conn.ec2.revoke_security_group_egress(security_group.id, rule.ip_protocol,
                                                   rule.from_port, rule.to_port,
                                                   grant.group_id, grant.cidr_ip)
+
 
 def is_main_route_table(route_table):
     for association in route_table.associations:

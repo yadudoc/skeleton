@@ -37,6 +37,8 @@ fullstack = """fab create_rds:expacore-db-1,core,postgres \
                    deployapp:expatest-full-1,app"""
 
 #----------HELPER FUNCTIONS-----------
+
+
 @contextmanager
 def virtualenv(directory):
     env.activate = 'source %s/bin/activate' % directory
@@ -71,7 +73,7 @@ with lcd(envdir):
             local(smallstack)
 
 # test urls
-urls = [ 'https://core.test.expa.com', 'https://gis.test.expa.com', 'https://www.test.expa.com', 'https://test.expa.com', 'http://blog.test.expa.com']
+urls = ['https://core.test.expa.com', 'https://gis.test.expa.com', 'https://www.test.expa.com', 'https://test.expa.com', 'http://blog.test.expa.com']
 url_response = dict.fromkeys(urls)
 for url in urls:
     try:

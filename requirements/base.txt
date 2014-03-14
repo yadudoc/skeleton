@@ -23,5 +23,4 @@ requests==1.2.3 				# Apache License 2.0
 rsa==3.1.2 						# Apache License 2.0
 six==1.4.1 						# MIT
 wsgiref==0.1.2 					# PSF or ZPL
-pylint==1.1.0                   # GPL
 progress==1.2
