@@ -34,7 +34,7 @@ migratedb-ci:
 	python ./project_name/manage.py migrate --noinput --settings=settings.test
 
 test: createdb requirements syncdb migratedb lint
-	project_name/manage.py test -v3 --settings=settings.test main beta query event users
+	project_name/manage.py test -v3 --settings=settings.test 
 
 test-ci:
 	coverage run --source='./project_name/' project_name/manage.py test -v3 --settings=settings.test

@@ -1,7 +1,7 @@
 # Local development dependencies go here
 -r base.txt
 coverage==3.6					# BSD
-django-discover-runner==0.4 	# BSD
+django-discover-runner==1.0 	# BSD
 django-debug-toolbar==0.11.0 # BSD
 Sphinx==1.2b1					# BSD
 pylint==1.1.0                   # GPL
