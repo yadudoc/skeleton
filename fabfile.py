@@ -2131,7 +2131,8 @@ def generatedefaultsettings(settingstype):
                                 'AWS_ACCESS_KEY_ID': aws_access_key_id,
                                 'AWS_SECRET_ACCESS_KEY': aws_secret_access_key,
                                 'AWS_STORAGE_BUCKET_NAME': '',
-                                'AWS_LOGGING_BUCKET_NAME': ''
+                                'AWS_LOGGING_BUCKET_NAME': '',
+                                'MANDRILL_API_KEY': ''
                             }
                         }
                     },
