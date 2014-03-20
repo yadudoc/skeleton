@@ -374,6 +374,10 @@ def create_stack(stackName, app_type):
             pass
         else:
             print error
+
+    # update stack with new custom_json updated by create_rds and create_s3_buckets
+    opsworks.update_stack(stack_id=stack['StackId'], custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': ')))
+
     if raw_input("shall we start the opsworks instance(s)? (y/n) ").lower() == "y":
         start_instance(stackName)
     else:
@@ -757,6 +761,22 @@ def getrdsinstances():
         for rdsinstance in rdsinstances:
             print rdsinstance.id
     return rdsinstances
+
+
+@task
+def updatestack(stackName, jsonFile):
+    """
+    read Opsworks chef json from file and update given stack name
+    """
+
+    try:
+        with open(os.path.join(os.path.expanduser(jsonFile)), "r") as chefJsonFile:
+            chefJson = json.load(chefJsonFile)
+    except IOError, e:
+        raise e
+
+    print _green("updating opsworks stack %s with json from %s..." % (stackName, jsonFile))
+    updateOpsworksStackJson(stackName, chefJson)
 
 
 @task
@@ -1666,6 +1686,27 @@ def control_instance(stackName, action, instanceName=None):
                 removefromsshconfig(dns=instance['PublicDns'])
             except Exception:
                 pass
+
+
+def updateOpsworksStackJson(stackName, chefJson):
+    """
+    update an Opsworks stack's custom json with given name and json
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    stack = getstacks(stackName=stackName)[0]
+    if 'stackid' in stack.keys():
+        opsworks = connect_to_opsworks()
+        opsworks.update_stack(stack_id=stack['stackid'], custom_json=json.dumps(chefJson, sort_keys=True, indent=2, separators=(',', ': ')))
+    else:
+        print _red("no stack found with name %s" % stackName)
 
 
 # config
