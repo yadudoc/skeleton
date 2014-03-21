@@ -2181,6 +2181,12 @@ def generatedefaultsettings(settingstype):
                             'access_key_id': aws_access_key_id,
                             'secret_access_key': aws_secret_access_key
                         },
+                        'is_production': 'false',
+                        'expa': {
+                            'databucket': 'expadata',
+                            'projectname': app_name,
+                            'eventslogpath': '/var/log/expa/data'
+                        },
                         'newrelic': {
                             'license_key': '',
                             'api_key': '',
