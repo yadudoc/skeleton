@@ -13,6 +13,7 @@ requirements:
 
 requirements-ci:
 	pip install --allow-unverified PIL -r requirements/test.txt
+	pip install awscli
 
 lint:
 	pylint -E fabfile.py
@@ -34,7 +35,7 @@ migratedb-ci:
 	python ./project_name/manage.py migrate --noinput --settings=settings.test
 
 test: createdb requirements syncdb migratedb lint
-	project_name/manage.py test -v3 --settings=settings.test 
+	project_name/manage.py test -v3 --settings=settings.test
 
 test-ci:
 	coverage run --source='./project_name/' project_name/manage.py test -v3 --settings=settings.test

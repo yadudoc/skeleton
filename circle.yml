@@ -31,10 +31,8 @@ test:
 #   production:
 #     branch: prd
 #     commands:
-#       - pip install awscli
 #       - ./deploy/deploy_aws.sh $PRODUCTION_STACK_ID $PRODUCTION_APP_ID
 #   staging:
 #     branch: master
 #     commands:
-#       - pip install awscli
 #       - ./deploy/deploy_aws.sh $STAGING_STACK_ID $STAGING_APP_ID
