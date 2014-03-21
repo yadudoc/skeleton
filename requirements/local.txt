@@ -4,5 +4,6 @@ coverage==3.6					# BSD
 django-discover-runner==1.0 	# BSD
 django-debug-toolbar==0.11.0 # BSD
 Sphinx==1.2b1					# BSD
+psycopg2==2.5.1
 pylint==1.1.0                   # GPL
 pep8==1.4.6
