@@ -1471,7 +1471,7 @@ def create_s3_buckets(app_type):
         app_settings = loadsettings(app_type)
 
     s3 = connect_to_s3()
-    s3LogBucket = app_settings["DOMAIN_NAME"].replace('.', '-') + "-logs"
+    s3LogBucket = app_settings["HOST_NAME"].replace('.', '-') + "-logs"
     try:
         s3.get_bucket(s3LogBucket)
     except S3ResponseError:
@@ -1481,7 +1481,7 @@ def create_s3_buckets(app_type):
             print error
             raise
 
-    s3StorageBucket = app_settings["DOMAIN_NAME"].replace('.', '-') + "-" + app_type + "-storage"
+    s3StorageBucket = app_settings["HOST_NAME"].replace('.', '-') + "-" + app_type + "-storage"
     try:
         s3.get_bucket(s3StorageBucket)
     except S3ResponseError:
