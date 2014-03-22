@@ -12,6 +12,7 @@ requirements:
 	pip install --allow-unverified PIL -r requirements/local.txt
 
 requirements-ci:
+    pip install "pip>=1.5.2"
 	pip install --allow-unverified PIL -r requirements/test.txt
 	pip install awscli
 

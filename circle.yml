@@ -12,7 +12,6 @@ machine:
     STAGING_APP_ID:
 dependencies:
   override:
-    - pip install "pip>=1.5.2"
     - make requirements-ci
   post:
     - sed -i -e "s:{{project_name}}:project_name:g" fabfile.py

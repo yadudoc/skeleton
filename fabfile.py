@@ -325,7 +325,7 @@ def create_stack(stackName, app_type):
     ec2 = connect_to_ec2()
     webserver_sg = ec2.get_all_security_groups(groupnames=['AWS-OpsWorks-Web-Server'])
     layer = opsworks.create_layer(stack_id=stack['StackId'], type='custom', name=app_settings["APP_NAME"], shortname=app_settings["APP_NAME"], custom_recipes=recipes,
-                                  enable_auto_healing=True, auto_assign_elastic_ips=True, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
+                                  enable_auto_healing=True, auto_assign_elastic_ips=False, auto_assign_public_ips=True, custom_security_group_ids=[webserver_sg[0].id])
 
     elb_name = stackName + '-elb'
     lb = create_elb(name=elb_name, app_type=app_type)
@@ -376,6 +376,7 @@ def create_stack(stackName, app_type):
             print error
 
     # update stack with new custom_json updated by create_rds and create_s3_buckets
+    app_settings = loadsettings(app_type)
     opsworks.update_stack(stack_id=stack['StackId'], custom_json=json.dumps(app_settings["OPSWORKS_CUSTOM_JSON"], sort_keys=True, indent=4, separators=(',', ': ')))
 
     if raw_input("shall we start the opsworks instance(s)? (y/n) ").lower() == "y":
@@ -2111,7 +2112,7 @@ def generatedefaultsettings(settingstype):
         database_name = 'app'
 
         fqdn = 'app.test.expa.com'
-        app_name = 'app'
+        app_name = None
         admin_user = 'app_admin'
         admin_email = 'app_admin@expa.com'
 
