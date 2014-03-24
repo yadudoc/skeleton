@@ -2184,9 +2184,11 @@ def generatedefaultsettings(settingstype):
                         },
                         'is_production': 'false',
                         'expa': {
-                            'databucket': 'expadata',
-                            'projectname': app_name,
-                            'eventslogpath': '/var/log/expa/data'
+                            'data': {
+                                's3bucket': 'expadata',
+                                'projectname': app_name,
+                                'eventslogpath': '/var/log/expa/data'
+                            }
                         },
                         'newrelic': {
                             'license_key': '',
