@@ -280,7 +280,8 @@ def create_stack(stackName, app_type):
                         "SshKey": cookbooks_deploy_key}
 
     recipes = {"Setup": ["bootstrap::default"],
-               "Deploy": ["app::default"]}
+               "Deploy": ["app::default"],
+               "Shutdown": ["app::shutdown"]}
 
     app_source = {"Url": "%s" % git_cfg.get(app_type, 'repo_url'),
                   "Type": "git",
