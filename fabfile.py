@@ -100,7 +100,7 @@ def create_rds(name, app_type, engine_type=None, security_groups=None):
         print _red('Error occured while provisioning the RDS instance  %s' % str(e))
         raise e
 
-    spinner = Spinner(_yellow('Waiting for rdsInstance to start... '))
+    spinner = Spinner(_yellow('Waiting for rdsInstance to start... '), hide_cursor=False)
     status = dbinstance.update()
     while status != 'available':
         spinner.next()
@@ -176,7 +176,7 @@ def create_ec2(name, tag=None, ami=None):
     group_name = aws_cfg.get("aws", "group_name")
 
     print(_green("Started creating {name} (type/ami: {type}/{ami})...".format(name=name, type=instance_type, ami=ami)))
-    spinner = Spinner(_yellow("...Creating EC2 instance... "))
+    spinner = Spinner(_yellow("...Creating EC2 instance... "), hide_cursor=False)
 
     conn = connect_to_ec2()
 
@@ -471,7 +471,7 @@ def terminate_rds(name):
             print "instance {} is already terminated".format(instance.id)
             continue
         if raw_input("terminate {instance}? (y/n) ".format(instance=instance.id)).lower() == "y":
-            spinner = Spinner(_yellow("Terminating {}".format(instance.id)))
+            spinner = Spinner(_yellow("Terminating {}".format(instance.id)), hide_cursor=False)
             if instance.status == 'available':
                 rds.delete_dbinstance(id=instance.id, skip_final_snapshot=True)
             elif instance.status == 'deleting':
@@ -864,7 +864,7 @@ def deploy_opsworks(stackName, command, recipes=None, instanceName=None):
     else:
         print(_red("stack: %s not found" % stackName))
         return 1
-    spinner = Spinner(_yellow("deployment %s: running... " % deployment['DeploymentId']))
+    spinner = Spinner(_yellow("deployment %s: running... " % deployment['DeploymentId']), hide_cursor=False)
     status = opsworks.describe_deployments(deployment_ids=[deployment['DeploymentId']])['Deployments'][0]['Status']
     while status == 'running':
         spinner.next()
@@ -1429,7 +1429,7 @@ def create_route53_elb_dns(elb_name, app_type):
             change.add_value('ALIAS %s (%s)' % (lb.canonical_hosted_zone_name, lb.canonical_hosted_zone_name_id))
             change_id = records.commit()['ChangeResourceRecordSetsResponse']['ChangeInfo']['Id'].split('/')[-1]
             status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']
-            spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % zone.name))
+            spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % zone.name), hide_cursor=False)
             while status != 'INSYNC':
                 spinner.next()
                 time.sleep(1)
@@ -1447,7 +1447,7 @@ def create_route53_elb_dns(elb_name, app_type):
         change.add_value('ALIAS %s (%s)' % (lb.canonical_hosted_zone_name, lb.canonical_hosted_zone_name_id))
         change_id = records.commit()['ChangeResourceRecordSetsResponse']['ChangeInfo']['Id'].split('/')[-1]
         status = r53.get_change(change_id)['GetChangeResponse']['ChangeInfo']['Status']
-        spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % app_host_name))
+        spinner = Spinner(_yellow('[%s]waiting for route53 change to coalesce... ' % app_host_name), hide_cursor=False)
         while status != 'INSYNC':
             spinner.next()
             time.sleep(1)
@@ -1587,7 +1587,7 @@ def create_elb(name, app_type):
     except BotoServerError, e:
         if e.code == 'CertificateNotFound':
             # for some reason IAM returns before the cert is actually available. sleep a bit and retry
-            spinner = Spinner(_green("IAM is lame and we need to wait for the cert arn to propagate and retry... "))
+            spinner = Spinner(_green("IAM is lame and we need to wait for the cert arn to propagate and retry... "), hide_cursor=False)
             for i in range(5):
                 spinner.next(i)
                 time.sleep(1)
@@ -1640,20 +1640,20 @@ def control_instance(stackName, action, instanceName=None):
             except ValidationException:
                 pass
             myinstance = opsworks.describe_instances(instance_ids=[instance['InstanceId']])['Instances'][0]
-            spinner = Spinner(_yellow("[%s]Waiting for reservation " % myinstance['Hostname']))
+            spinner = Spinner(_yellow("[%s]Waiting for reservation " % myinstance['Hostname']), hide_cursor=False)
             while myinstance['Status'] == 'requested':
                 spinner.next()
                 time.sleep(1)
                 myinstance = opsworks.describe_instances(instance_ids=[instance['InstanceId']])['Instances'][0]
             print(_green("\n[%s]OpsWorks instance status: %s" % (myinstance['Hostname'], myinstance['Status'])))
             ec2Instance = ec2.get_only_instances(instance_ids=[myinstance['Ec2InstanceId']])[0]
-            spinner = Spinner(_yellow("[%s]Booting ec2 instance " % myinstance['Hostname']))
+            spinner = Spinner(_yellow("[%s]Booting ec2 instance " % myinstance['Hostname']), hide_cursor=False)
             while ec2Instance.state != u'running':
                 spinner.next()
                 time.sleep(1)
                 ec2Instance.update()
             print(_green("\n[%s]ec2 Instance state: %s" % (myinstance['Hostname'], ec2Instance.state)))
-            spinner = Spinner(_yellow("[%s]Running OpsWorks setup " % myinstance['Hostname']))
+            spinner = Spinner(_yellow("[%s]Running OpsWorks setup " % myinstance['Hostname']), hide_cursor=False)
             while myinstance['Status'] != 'online':
                 if myinstance['Status'] == 'setup_failed':
                     print(_red("\n[%s]OpsWorks instance failed" % myinstance['Hostname']))
@@ -1668,14 +1668,14 @@ def control_instance(stackName, action, instanceName=None):
                 print(_green("Stopping instance %s" % instance['Hostname']))
                 opsworks.stop_instance(instance_id=instance['InstanceId'])
                 ec2Instance = ec2.get_only_instances(instance_ids=[instance['Ec2InstanceId']])[0]
-                spinner = Spinner(_yellow("[%s]Waiting for ec2 instance to stop " % instance['Hostname']))
+                spinner = Spinner(_yellow("[%s]Waiting for ec2 instance to stop " % instance['Hostname']), hide_cursor=False)
                 while ec2Instance.state != u'stopped':
                     spinner.next()
                     time.sleep(1)
                     ec2Instance.update()
                 print(_green("\n[%s]ec2 Instance state: %s" % (instance['Hostname'], ec2Instance.state)))
                 myinstance = opsworks.describe_instances(instance_ids=[instance['InstanceId']])['Instances'][0]
-                spinner = Spinner(_yellow("[%s]Stopping OpsWorks Instance " % instance['Hostname']))
+                spinner = Spinner(_yellow("[%s]Stopping OpsWorks Instance " % instance['Hostname']), hide_cursor=False)
                 while myinstance['Status'] != 'stopped':
                     spinner.next()
                     time.sleep(1)
