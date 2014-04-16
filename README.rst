@@ -1,5 +1,5 @@
 ========================
-skeleton
+skeleton -- **CHANGE THIS README ONCE YOU START YOUR PROJECT!**
 ========================
 
 A common deployment framework to spin up vagrant or aws instances with a base django app.
