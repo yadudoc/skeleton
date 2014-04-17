@@ -20,7 +20,9 @@ should replace this name with the actual name of your project.*
 Prerequisites
 =============
 #. pip
-#. virtualenv (optional: virtualenvwrapper)
+#. virtualenv (optional but recommended: virtualenvwrapper)
+#. VirtualBox (http://www.virtualbox.org) - **Tested on 4.3.10**
+#. vagrant (http://vagrantup.com) - **Tested on 1.5.3**
 #. setup git.cfg (based on git.cfg-dist)
 #. setup aws.cfg (based on aws.cfg-dist)
 
@@ -54,7 +56,6 @@ First, make sure you are using virtualenv (http://www.virtualenv.org). Once
 that's installed, create your virtualenv::
 
     $ mkvirtualenv testme
-    $ workon testme
 
 Installing Django
 =================
@@ -68,27 +69,23 @@ Creating your project
 
 To create a new Django project called '**testme**' using django-twoscoops-project, run the following command::
 
-    $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml --name=Vagrantfile --name=crontab testme
-    $ pip install -r requirements/local.txt
+    $ django-admin.py startproject -v3 --template=https://github.com/expa/skeleton/archive/master.zip --extension=py,rst,html,conf,xml,json --name=Vagrantfile --name=crontab --name=Makefile testme
 
 Vagrant + VirtualBox
 ====================
 
-Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant 1.3.5 (http://downloads.vagrantup.com/tags/v1.3.5)::
+Grab VirtualBox (https://www.virtualbox.org/wiki/Downloads) and Vagrant (http://www.vagrantup.com/)::
 
-    $ vagrant plugin install vagrant-fabric
-    $ vagrant plugin install vagrant-vbguest
-    $ cd testme
-    $ vagrant up
+    $ make deploy-dev
 
 Startup your app
 ====================
 To start the **testme** app, use vagrant to enter the VM and django to start the server::
 
     $ vagrant ssh
-    $ cd /srv/www/testme
-    $ source bin/activate
-    $ python ./releases/current/testme/manage.py runserver 0.0.0.0:8000
+    $ lsync (to sync your db models)
+    $ lmigrate (to apply any pending db migrations)
+    $ lserver (to run the local django server)
 
 Acknowledgements
 ================

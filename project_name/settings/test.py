@@ -10,9 +10,9 @@ TEST_DISCOVER_PATTERN = "test_*.py"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'skeleton_test',
-        'USER': 'skeleton',
-        'PASSWORD': 'skeleton',
+        'NAME': '{{project_name}}_test',
+        'USER': '{{project_name}}',
+        'PASSWORD': '{{project_name}}',
         'HOST': "127.0.0.1",
         'PORT': 5432,
     }

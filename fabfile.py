@@ -823,10 +823,10 @@ def bootstrap(name, app_type):
     install_package(' '.join(package_list))
     with settings(hide('stdout')):
         sudo('apt-get -qq -y --force-yes remove s3cmd')
-    sudo('pip install -q --upgrade s3cmd')
+    sudo('pip install -q --upgrade awscli')
 
     if app_settings["DATABASE_HOST"] == 'localhost':
-        install_localdb_server(name, app_settings["DB_TYPE"])
+        install_localdb_server(name, app_settings["DB_TYPE"], app_type)
 
 
 @task
@@ -1040,10 +1040,11 @@ def localdev():
     """
     Deploy app to local vagrant. For use with vagrant up and provided VagrantFile
     """
+    app_type = 'local'
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings('app')
+        app_settings = loadsettings(app_type)
 
     env.user = 'vagrant'
     env.group = 'vagrant'
@@ -1054,13 +1055,13 @@ def localdev():
         sudo('echo "LANGUAGE=en_US.UTF-8" > /etc/default/locale')
         sudo('echo "LANG=en_US.UTF-8" >> /etc/default/locale')
         sudo('echo "LC_ALL=en_US.UTF-8" >> /etc/default/locale')
-    bootstrap(env.host_string, 'app')
+    bootstrap(env.host_string, app_type)
     sudo('chown -R {user}:{group} {path}'.format(path=app_settings["INSTALLROOT"], user=env.user, group=env.group))
     with cd('{}'.format(app_settings["PROJECTPATH"])):
         run('virtualenv --distribute .')
-    install_requirements()
+    install_requirements(app_type=app_type)
     print(_yellow("--creating db...--"))
-    createlocaldb('app', app_settings["DB_TYPE"])
+    createlocaldb(app_type, app_settings["DB_TYPE"])
 
     with settings(hide('running')):
         sudo('echo "alias lserver=\'cd {projectpath} ; source bin/activate; python releases/current/{app_name}/manage.py runserver 0.0.0.0:8000\'" > /etc/profile.d/lserver.sh'.format(projectpath=app_settings["PROJECTPATH"], app_name=app_settings["APP_NAME"]))
@@ -1868,7 +1869,7 @@ def install_web(app_type):
     sudo('chmod 755 /etc/init.d/uwsgi')
 
 
-def install_localdb_server(name, db_type):
+def install_localdb_server(name, db_type, app_type):
     """
     Install db server on named instance of db_type
     """
@@ -1877,13 +1878,13 @@ def install_localdb_server(name, db_type):
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings('app')
+        app_settings = loadsettings(app_type)
 
     try:
         app_settings["LOCAL_DB_SUPERUSER_PASS"]
     except KeyError:
         app_settings["LOCAL_DB_SUPERUSER_PASS"] = ''.join(random.SystemRandom().choice(string.ascii_letters + string.digits) for ii in range(32))
-        savesettings(app_settings, 'app_settings.json')
+        savesettings(app_settings, app_type + '_settings.json')
 
     if db_type == 'mysql':
         with settings(hide('running', 'stdout')):
@@ -1987,10 +1988,12 @@ def createlocaldb(app_type, db_type='mysql'):
     """
     Create a local mysql db on named instance with given app settings.
     """
+
+    # TODO: need to rework the mysql root password storage
     try:
         app_settings
     except NameError:
-        app_settings = loadsettings('app')
+        app_settings = loadsettings(app_type)
 
     try:
         local_app_settings
