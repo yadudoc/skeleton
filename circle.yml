@@ -14,7 +14,7 @@ dependencies:
   override:
     - make requirements-ci
   post:
-    - sed -i -e "s:{{project_name}}:project_name:g" fabfile.py
+    - sed -i -e "s:{{project_name}}:project_name:g" ./fabfile.py ./project_name/settings/test.py ./Makefile
 database:
   override:
     - make createdb
