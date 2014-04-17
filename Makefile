@@ -30,7 +30,7 @@ requirements: check-env
 
 requirements-global:
 ifndef VIRTUAL_ENV
-	@sudo easy_install -U pip
+	@sudo easy_install -U pip==1.5.4
 	@sudo pip install virtualenv
 	@sudo pip install virtualenvwrapper
 else
