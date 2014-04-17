@@ -7,7 +7,7 @@ ifndef VIRTUAL_ENV
 	$(error VIRTUAL_ENV is undefined. perhaps you should activate a virtualenv..)
 endif
 ifeq ($(shell vagrant status | grep running),)
-	$(eval VAGRANT_CMD += vagrant up)
+	$(eval VAGRANT_CMD += vagrant up --provision)
 else
 	$(eval VAGRANT_CMD += vagrant provision)
 endif
