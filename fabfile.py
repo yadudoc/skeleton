@@ -713,7 +713,7 @@ def getec2instances():
         for instance in host.instances:
             if instance.state == 'running':
                 if 'opsworks:instance' in instance.tags.keys():
-                    taggedhosts.extend([[instance.public_dns_name, instance.tags['opsworks:instance'], instance.instance_type]])
+                    taggedhosts.extend([[instance.public_dns_name, instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], instance.instance_type]])
                     isOpsworksInstance = True
                     iam = connect_to_iam()
                     opsworks = connect_to_opsworks()
