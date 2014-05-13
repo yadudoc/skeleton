@@ -261,6 +261,23 @@
         ]
       }
     },
+    "MyElastiCacheSubnetGroup": {
+      "Type": "AWS::ElastiCache::SubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Subnets available for the ElastiCache Instance",
+        "SubnetIds": [
+          {
+            "Ref": "PrivateSubnetA"
+          },
+          {
+            "Ref": "PrivateSubnetB"
+          },
+          {
+            "Ref": "PrivateSubnetC"
+          }
+        ]
+      }
+    },
     "MyDBSubnetGroup": {
       "Type": "AWS::RDS::DBSubnetGroup",
       "Properties": {
