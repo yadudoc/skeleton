@@ -279,9 +279,9 @@ def create_stack(stackName, app_type):
                         "Type": "git",
                         "SshKey": cookbooks_deploy_key}
 
-    recipes = {"Setup": ["bootstrap::default"],
-               "Deploy": ["app::default"],
-               "Shutdown": ["app::shutdown"]}
+    recipes = {"Setup": ["app::sns-handler", "bootstrap::misc", "newrelic::default", "dokku::bootstrap", "app::dokku-logs", "logstash::agent", "app::newrelic-nginx-plugin"],
+               "Deploy": ["app::sns-handler", "dokku::apps", "nginx::logging", "dokku_deploy::default", "app::newrelic-notify-deployment", "logstash::restart_agent", "app::sync-db-to-expa"],
+               "Shutdown": ["app::sns-handler", "app::shutdown"]}
 
     app_source = {"Url": "%s" % git_cfg.get(app_type, 'repo_url'),
                   "Type": "git",
