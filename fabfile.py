@@ -711,7 +711,7 @@ def getec2instances():
     taggedhosts = []
     for host in conn.get_all_instances(instance_ids):
         for instance in host.instances:
-            if instance.state == 'running':
+            if instance.state == 'running' and 'Name' in instance.tags and instance.public_dns_name != '':
                 if 'opsworks:instance' in instance.tags.keys():
                     taggedhosts.extend([[instance.public_dns_name, instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], instance.instance_type]])
                     isOpsworksInstance = True
