@@ -2233,8 +2233,7 @@ def addtosshconfig(name, dns, ssh_user='ubuntu', isOpsworksInstance=False):
     else:
         key_file = aws_cfg.get('aws', 'key_name') + '.pem'
 
-    ssh_slug = """
-    Host {name}
+    ssh_slug = """\nHost {name}
     HostName {dns}
     Port 22
     User {ssh_user}
