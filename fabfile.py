@@ -691,39 +691,43 @@ def getec2instances():
     except NameError:
         aws_cfg = load_aws_cfg()
 
-    # We don't need to do this?
-    # Get a list of instance IDs for the ELB.
-    # instances = []
-    # conn = connect_to_elb()
-    # for elb in conn.get_all_load_balancers():
-    #     instances.extend(elb.instances)
-
-    # Get the instance IDs for the reservations.
+    # Get our connections to AWS services and attempt to get OpsWorks ssh user if it exists
     conn = connect_to_ec2()
-    #reservations = conn.get_all_instances([i.id for i in instances])
-    reservations = conn.get_all_instances()
-    instance_ids = []
-    for reservation in reservations:
-        for i in reservation.instances:
-            instance_ids.append(i.id)
+    iam = connect_to_iam()
+    opsworks = connect_to_opsworks()
+    user_arn = iam.get_user()['get_user_response']['get_user_result']['user']['arn']
+    try:
+        opsworks_ssh_user = opsworks.describe_user_profiles(iam_user_arns=[user_arn])['UserProfiles'][0]['SshUsername']
+    except KeyError, e:
+        print "looks like the response format has changed setting opsworks_ssh_user to None"
+        print e
+        opsworks_ssh_user = None
+    except Exception, e:
+        print "some unexpected thing happened. setting opsworks_ssh_user to None"
+        print e
+        opsworks_ssh_user = None
 
     # Get the public CNAMES for those instances.
     taggedhosts = []
-    for host in conn.get_all_instances(instance_ids):
-        for instance in host.instances:
-            if instance.state == 'running' and 'Name' in instance.tags and instance.public_dns_name != '':
-                if 'opsworks:instance' in instance.tags.keys():
-                    taggedhosts.extend([[instance.public_dns_name, instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], instance.instance_type]])
-                    isOpsworksInstance = True
-                    iam = connect_to_iam()
-                    opsworks = connect_to_opsworks()
-                    user_arn = iam.get_user()['get_user_response']['get_user_result']['user']['arn']
-                    ssh_user = opsworks.describe_user_profiles(iam_user_arns=[user_arn])['UserProfiles'][0]['SshUsername']
-                else:
-                    taggedhosts.extend([[instance.public_dns_name, instance.tags['Name'], instance.instance_type]])
-                    isOpsworksInstance = False
+    instances = conn.get_only_instances()
+    public_instances = [i for i in instances if i.public_dns_name != '']
+    instance_ami_ids = list(set([x.image_id for x in public_instances]))
+    running_amis = conn.get_all_images(image_ids=instance_ami_ids)
+
+    for instance in public_instances:
+        if instance.state == 'running' and 'Name' in instance.tags and instance.public_dns_name != '':
+            if 'opsworks:instance' in instance.tags.keys():
+                isOpsworksInstance = True
+                taggedhosts.extend([{'public_dns_name': instance.public_dns_name, 'host_alias': instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], 'instance_type': instance.instance_type, 'ssh_user': opsworks_ssh_user}])
+            else:
+                isOpsworksInstance = False
+                instance_ami = [ami.name for ami in running_amis if instance.image_id == ami.id]
+                if any('ubuntu' in ami for ami in instance_ami) or any('expa' in ami for ami in instance_ami):
                     ssh_user = 'ubuntu'
-        taggedhosts.sort()  # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
+                else:
+                    ssh_user = 'ec2-user'
+                taggedhosts.extend([{'public_dns_name': instance.public_dns_name, 'host_alias': instance.tags['Name'], 'instance_type': instance.instance_type, 'ssh_user': ssh_user}])
+    taggedhosts.sort()  # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
 
     if not any(taggedhosts):
         print "no hosts found"
@@ -731,12 +735,12 @@ def getec2instances():
         if not os.path.isdir("fab_hosts"):
             os.mkdir('fab_hosts')
         for taggedhost in taggedhosts:
-            with open("fab_hosts/{}.txt".format(taggedhost[1]), "w") as fabhostfile:
-                fabhostfile.write(taggedhost[0])
-            print taggedhost[1] + " " + taggedhost[0]
+            with open("fab_hosts/{}.txt".format(taggedhost['host_alias']), "w") as fabhostfile:
+                fabhostfile.write(taggedhost['public_dns_name'])
+            print "%s %s" % (taggedhost['host_alias'], taggedhost['public_dns_name'])
 
     for taggedhost in taggedhosts:
-        addtosshconfig(name=taggedhost[1], dns=taggedhost[0], ssh_user=ssh_user, isOpsworksInstance=isOpsworksInstance)
+        addtosshconfig(name=taggedhost['host_alias'], dns=taggedhost['public_dns_name'], ssh_user=taggedhost['ssh_user'], isOpsworksInstance=isOpsworksInstance)
 
 
 @task
