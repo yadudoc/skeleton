@@ -5,3 +5,5 @@
 gunicorn==0.17.4		# MIT
 #MySQL-python==1.2.4		# GPL
 psycopg2==2.5.1
+uwsgi==2.0
+uwsgitop==0.8
