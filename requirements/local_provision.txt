@@ -7,3 +7,4 @@ coverage==3.6					# BSD
 pylint==1.1.0                   # GPL
 pep8==1.4.6
 progress==1.2
+json-delta==0.1

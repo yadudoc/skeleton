@@ -1,6 +1,6 @@
 
 import boto.ec2, boto.rds, boto.route53, boto.s3, boto.iam
-import os, time, json, string, random, subprocess, calendar
+import os, time, json, json_delta, string, random, subprocess, calendar
 
 from contextlib import contextmanager
 from random import choice
@@ -770,19 +770,60 @@ def getrdsinstances():
 
 
 @task
-def updatestack(stackName, jsonFile):
+def updatestackjson(stackName, jsonFile):
     """
     read Opsworks chef json from file and update given stack name
     """
 
     try:
         with open(os.path.join(os.path.expanduser(jsonFile)), "r") as chefJsonFile:
-            chefJson = json.load(chefJsonFile)
+            localStackChefJson = json.load(chefJsonFile)
     except IOError, e:
         raise e
 
     print _green("updating opsworks stack %s with json from %s..." % (stackName, jsonFile))
-    updateOpsworksStackJson(stackName, chefJson)
+    updateOpsworksStackJson(stackName, localStackChefJson)
+
+
+@task
+def diffstackjson(stackName, jsonFile):
+    """
+    read Opsworks chef json from file and compare json from AWS
+    """
+    try:
+        with open(os.path.join(os.path.expanduser(jsonFile)), "r") as chefJsonFile:
+            localStackChefJson = json.load(chefJsonFile)
+    except IOError, e:
+        raise e
+
+    try:
+        currentStackChefJson = getOpsworksStackJson(stackName)
+    except Exception, e:
+        raise e
+
+    jsonDiff = diffJson(localStackChefJson, currentStackChefJson)
+    for x in jsonDiff:
+        if x == " {...}":
+            print _green("stack json matches")
+        else:
+            print x
+
+
+@task
+def savestackjson(stackName, jsonFile):
+    """
+    get Opsworks chef json from AWS and save to specified file
+    """
+    try:
+        currentStackChefJson = getOpsworksStackJson(stackName)
+    except Exception, e:
+        raise e
+
+    try:
+        with open(os.path.join(os.path.expanduser(jsonFile)), "w") as chefJsonFile:
+            chefJsonFile.write(json.dumps(currentStackChefJson, indent=2, separators=(',', ': '), sort_keys=True))
+    except IOError, e:
+        raise e
 
 
 @task
@@ -1714,6 +1755,37 @@ def updateOpsworksStackJson(stackName, chefJson):
         opsworks.update_stack(stack_id=stack['stackid'], custom_json=json.dumps(chefJson, sort_keys=True, indent=2, separators=(',', ': ')))
     else:
         print _red("no stack found with name %s" % stackName)
+
+
+def getOpsworksStackJson(stackName):
+    """
+    get an Opsworks stack's custom json with given name
+    return stackJson
+    """
+    try:
+        aws_cfg
+    except NameError:
+        try:
+            aws_cfg = load_aws_cfg()
+        except Exception, error:
+            print(_red("error loading config. please provide an AWS conifguration based on aws.cfg-dist to proceed. %s" % error))
+            return 1
+
+    stack = getstacks(stackName=stackName)[0]
+    if 'stackid' in stack.keys():
+        opsworks = connect_to_opsworks()
+        stackJson = json.loads(opsworks.describe_stacks(stack_ids=[stack['stackid']])['Stacks'][0]['CustomJson'])
+    else:
+        print _red("no stack found with name %s" % stackName)
+    return stackJson
+
+
+def diffJson(json1, json2):
+    # sortedJsonString1 = json.dumps(json1, sort_keys=True)
+    # sortedJsonString2 = json.dumps(json2, sort_keys=True)
+
+    jsonDiff = json_delta.udiff(json1, json2)
+    return jsonDiff
 
 
 # config
