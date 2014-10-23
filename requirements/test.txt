@@ -6,3 +6,4 @@ psycopg2==2.5.1
 django-debug-toolbar==0.11.0 # BSD
 pylint==1.1.0                   # GPL
 pep8==1.4.6
+json-delta==0.1
