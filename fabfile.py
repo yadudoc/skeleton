@@ -770,10 +770,14 @@ def getrdsinstances():
 
 
 @task
-def updatestackjson(stackName, jsonFile):
+def updatestackjson(stackName, jsonFile=None):
     """
     read Opsworks chef json from file and update given stack name
     """
+
+    if jsonFile is None:
+        jsonFile = "../../awsjson/%s.json" % stackName
+        print _yellow("json file not specified. defaulting to %s" % jsonFile)
 
     try:
         with open(os.path.join(os.path.expanduser(jsonFile)), "r") as chefJsonFile:
@@ -786,10 +790,14 @@ def updatestackjson(stackName, jsonFile):
 
 
 @task
-def diffstackjson(stackName, jsonFile):
+def diffstackjson(stackName, jsonFile=None):
     """
     read Opsworks chef json from file and compare json from AWS
     """
+    if jsonFile is None:
+        jsonFile = "../../awsjson/%s.json" % stackName
+        print _yellow("json file not specified. defaulting to %s" % jsonFile)
+
     try:
         with open(os.path.join(os.path.expanduser(jsonFile)), "r") as chefJsonFile:
             localStackChefJson = json.load(chefJsonFile)
@@ -810,10 +818,14 @@ def diffstackjson(stackName, jsonFile):
 
 
 @task
-def savestackjson(stackName, jsonFile):
+def savestackjson(stackName, jsonFile=None):
     """
     get Opsworks chef json from AWS and save to specified file
     """
+    if jsonFile is None:
+        jsonFile = "../../awsjson/%s.json" % stackName
+        print _yellow("json file not specified. defaulting to %s" % jsonFile)
+
     try:
         currentStackChefJson = getOpsworksStackJson(stackName)
     except Exception, e:
