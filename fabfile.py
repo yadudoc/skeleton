@@ -698,11 +698,11 @@ def getec2instances():
     user_arn = iam.get_user()['get_user_response']['get_user_result']['user']['arn']
     try:
         opsworks_ssh_user = opsworks.describe_user_profiles(iam_user_arns=[user_arn])['UserProfiles'][0]['SshUsername']
-    except KeyError, e:
+    except KeyError as e:
         print "looks like the response format has changed setting opsworks_ssh_user to None"
         print e
         opsworks_ssh_user = None
-    except Exception, e:
+    except Exception as e:
         print "some unexpected thing happened. setting opsworks_ssh_user to None"
         print e
         opsworks_ssh_user = None
@@ -710,15 +710,21 @@ def getec2instances():
     # Get the public CNAMES for those instances.
     taggedhosts = []
     instances = conn.get_only_instances()
-    public_instances = [i for i in instances if i.public_dns_name != '']
+    # public_instances = [i for i in instances if i.public_dns_name != '']
+    public_instances = instances
     instance_ami_ids = list(set([x.image_id for x in public_instances]))
     running_amis = conn.get_all_images(image_ids=instance_ami_ids)
 
     for instance in public_instances:
-        if instance.state == 'running' and 'Name' in instance.tags and instance.public_dns_name != '':
+        if (instance.state == 'running' and 'Name' in instance.tags) and (instance.public_dns_name != '' or instance.private_ip_address != ''):
+            if instance.public_dns_name == '':
+                instance_hostname = instance.private_ip_address
+            else:
+                instance_hostname = instance.public_dns_name
+
             if 'opsworks:instance' in instance.tags.keys():
                 isOpsworksInstance = True
-                taggedhosts.extend([{'public_dns_name': instance.public_dns_name, 'host_alias': instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], 'instance_type': instance.instance_type, 'ssh_user': opsworks_ssh_user}])
+                taggedhosts.extend([{'instance_hostname': instance_hostname, 'host_alias': instance.tags['opsworks:stack'].replace(' ', '-') + '-' + instance.tags['opsworks:instance'], 'instance_type': instance.instance_type, 'ssh_user': opsworks_ssh_user}])
             else:
                 isOpsworksInstance = False
                 instance_ami = [ami.name for ami in running_amis if instance.image_id == ami.id]
@@ -726,7 +732,7 @@ def getec2instances():
                     ssh_user = 'ubuntu'
                 else:
                     ssh_user = 'ec2-user'
-                taggedhosts.extend([{'public_dns_name': instance.public_dns_name, 'host_alias': instance.tags['Name'], 'instance_type': instance.instance_type, 'ssh_user': ssh_user}])
+                taggedhosts.extend([{'instance_hostname': instance_hostname, 'host_alias': instance.tags['Name'], 'instance_type': instance.instance_type, 'ssh_user': ssh_user}])
     taggedhosts.sort()  # Put them in a consistent order, so that calling code can do hosts[0] and hosts[1] consistently.
 
     if not any(taggedhosts):
@@ -736,11 +742,11 @@ def getec2instances():
             os.mkdir('fab_hosts')
         for taggedhost in taggedhosts:
             with open("fab_hosts/{}.txt".format(taggedhost['host_alias']), "w") as fabhostfile:
-                fabhostfile.write(taggedhost['public_dns_name'])
-            print "%s %s" % (taggedhost['host_alias'], taggedhost['public_dns_name'])
+                fabhostfile.write(taggedhost['instance_hostname'])
+            print "%s %s" % (taggedhost['host_alias'], taggedhost['instance_hostname'])
 
     for taggedhost in taggedhosts:
-        addtosshconfig(name=taggedhost['host_alias'], dns=taggedhost['public_dns_name'], ssh_user=taggedhost['ssh_user'], isOpsworksInstance=isOpsworksInstance)
+        addtosshconfig(name=taggedhost['host_alias'], dns=taggedhost['instance_hostname'], ssh_user=taggedhost['ssh_user'], isOpsworksInstance=isOpsworksInstance)
 
 
 @task
